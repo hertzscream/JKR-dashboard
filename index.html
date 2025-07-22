@@ -35,33 +35,32 @@
   <div id="circle" class="status-circle status-off"></div>
   <div id="label" class="label">OFF</div>
 
-  <!-- Firebase SDK Modular -->
-  <script type="module">
-    // 🔧 นำเข้า Firebase SDK แบบ Modular
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js";
-    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js";
-
-    // 🔧 กำหนด Firebase Config (ปรับให้ตรงกับโปรเจกต์ของคุณ)
+  <!-- Firebase SDK v8 -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+  <script>
+    // 🔧 ใส่ config Firebase ของคุณ
     const firebaseConfig = {
       apiKey: "AIzaSyAqqvsIGXHb_IkFEtFmZ-AjDxoRPqX8ZX4",
       databaseURL: "https://farm-control-2568-default-rtdb.firebaseio.com",
       projectId: "farm-control-2568"
     };
 
-    // เริ่มใช้งาน Firebase
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-    const statusRef = ref(db, "status");
+    // เริ่มต้น Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-    // รับค่าจาก Firebase แบบ Real-Time
-    onValue(statusRef, (snapshot) => {
+    // รับค่าจาก path "status"
+    const statusRef = db.ref("status");
+
+    statusRef.on("value", (snapshot) => {
       const status = snapshot.val();
       console.log("สถานะจาก Firebase:", status);
 
       const circle = document.getElementById("circle");
       const label = document.getElementById("label");
 
-      if (status === "ON" || status === "ทำงาน") {
+      if (status === "ทำงาน" || status === "ON") {
         circle.className = "status-circle status-on";
         label.innerText = "ON";
       } else {
