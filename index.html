@@ -17,7 +17,11 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
-        body { font-family: 'Sarabun', sans-serif; }
+        body { 
+            font-family: 'Sarabun', sans-serif; 
+            margin: 0;
+            padding: 0;
+        }
         .recharts-responsive-container { min-height: 300px; }
     </style>
 </head>
@@ -31,20 +35,25 @@
             ResponsiveContainer, PieChart, Pie, Cell, Legend 
         } = Recharts;
 
-        // --- Icons from Lucide (using DOM insertion for simplicity in standalone) ---
+        // --- Improved Icon Component ---
         const Icon = ({ name, className = "w-5 h-5" }) => {
+            const iconRef = React.useRef(null);
+            
             useEffect(() => {
-                lucide.createIcons();
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
             }, [name]);
+
             return <i data-lucide={name} className={className}></i>;
         };
 
         // --- Helper Functions ---
         const parseDurationToSeconds = (durationStr) => {
-            if (!durationStr || durationStr === '-') return 0;
+            if (!durationStr || durationStr === '-' || typeof durationStr !== 'string') return 0;
             const parts = durationStr.split(':').map(Number);
-            if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-            if (parts.length === 2) return parts[0] * 60 + parts[1];
+            if (parts.length === 3) return (parts[0] || 0) * 3600 + (parts[1] || 0) * 60 + (parts[2] || 0);
+            if (parts.length === 2) return (parts[0] || 0) * 60 + (parts[1] || 0);
             return 0;
         };
 
@@ -84,6 +93,11 @@
                     cumulativeSec: parseDurationToSeconds(item.cumulative)
                 }));
                 setData(processed);
+                
+                // Ensure icons are initialized on first load
+                if (window.lucide) {
+                    window.lucide.createIcons();
+                }
             }, []);
 
             const handleFileUpload = (event) => {
@@ -99,13 +113,13 @@
                         if (cols.length < 5) return null;
                         return {
                             id: index,
-                            date: cols[0].trim(),
-                            stopTime: cols[1].trim(),
-                            startTime: cols[2].trim(),
-                            duration: cols[3].trim(),
-                            cumulative: cols[4].trim(),
-                            durationSec: parseDurationToSeconds(cols[3].trim()),
-                            cumulativeSec: parseDurationToSeconds(cols[4].trim())
+                            date: (cols[0] || "").trim(),
+                            stopTime: (cols[1] || "").trim(),
+                            startTime: (cols[2] || "").trim(),
+                            duration: (cols[3] || "").trim(),
+                            cumulative: (cols[4] || "").trim(),
+                            durationSec: parseDurationToSeconds((cols[3] || "").trim()),
+                            cumulativeSec: parseDurationToSeconds((cols[4] || "").trim())
                         };
                     }).filter(item => item !== null);
                     setData(parsedData);
@@ -129,17 +143,20 @@
                 const totalDowntimeSec = filteredData.reduce((acc, curr) => acc + curr.durationSec, 0);
                 const avgDowntimeSec = totalStops > 0 ? totalDowntimeSec / totalStops : 0;
                 const maxDowntime = filteredData.reduce((max, curr) => curr.durationSec > max.durationSec ? curr : max, { durationSec: 0 });
+                
                 const categories = { short: 0, medium: 0, long: 0 };
                 filteredData.forEach(d => {
                     if (d.durationSec < 60) categories.short++;
                     else if (d.durationSec < 300) categories.medium++;
                     else categories.long++;
                 });
+
                 const pieData = [
                     { name: 'น้อยกว่า 1 นาที', value: categories.short },
                     { name: '1 - 5 นาที', value: categories.medium },
                     { name: 'มากกว่า 5 นาที', value: categories.long },
                 ].filter(d => d.value > 0);
+
                 return { totalStops, totalDowntimeSec, avgDowntimeSec, maxDowntime, pieData };
             }, [filteredData]);
 
@@ -162,8 +179,8 @@
                 <div className="min-h-screen bg-slate-50 flex">
                     {/* Sidebar */}
                     <aside className={`bg-white border-r border-slate-200 transition-all duration-300 flex flex-col fixed h-full z-20 ${isSidebarOpen ? 'w-64' : 'w-20'}`}>
-                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                            {isSidebarOpen && <h1 className="font-bold text-xl text-slate-800 flex items-center gap-2"><Icon name="layout-dashboard" className="text-indigo-600 w-6 h-6" /> Gen Log</h1>}
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between overflow-hidden">
+                            {isSidebarOpen && <h1 className="font-bold text-xl text-slate-800 flex items-center gap-2 whitespace-nowrap"><Icon name="layout-dashboard" className="text-indigo-600 w-6 h-6" /> Gen Log</h1>}
                             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-100 rounded text-slate-500 mx-auto">
                                 <Icon name="chevron-right" className={`transform transition-transform ${isSidebarOpen ? 'rotate-180' : ''}`} />
                             </button>
@@ -173,20 +190,20 @@
                                 <>
                                     <div className="space-y-2">
                                         <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ตัวกรองวันที่</label>
-                                        <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                                        <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500">
                                             {uniqueDates.map(date => <option key={date} value={date}>{date === 'All' ? 'แสดงทั้งหมด' : date}</option>)}
                                         </select>
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ระยะเวลาดับขั้นต่ำ</label>
-                                        <select value={minDurationFilter} onChange={(e) => setMinDurationFilter(Number(e.target.value))} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm">
+                                        <select value={minDurationFilter} onChange={(e) => setMinDurationFilter(Number(e.target.value))} className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500">
                                             <option value={0}>ทั้งหมด</option>
                                             <option value={60}>มากกว่า 1 นาที</option>
                                             <option value={300}>มากกว่า 5 นาที</option>
                                         </select>
                                     </div>
                                     <div className="pt-6 border-t border-slate-100">
-                                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100">
+                                        <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
                                             <Icon name="upload" className="w-6 h-6 mb-2 text-slate-400" />
                                             <p className="text-xs text-slate-500">อัปโหลด CSV</p>
                                             <input type="file" className="hidden" accept=".csv" onChange={handleFileUpload} />
@@ -194,42 +211,52 @@
                                     </div>
                                 </>
                             )}
+                            {!isSidebarOpen && (
+                                <div className="flex flex-col items-center gap-6 pt-4">
+                                    <Icon name="calendar" className="text-slate-400" />
+                                    <Icon name="clock" className="text-slate-400" />
+                                    <Icon name="upload" className="text-slate-400" />
+                                </div>
+                            )}
                         </div>
                     </aside>
 
                     {/* Main Content */}
-                    <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8`}>
-                        <header className="mb-8 flex justify-between items-end">
+                    <main className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'} p-4 md:p-8`}>
+                        <header className="mb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
                             <div>
-                                <h2 className="text-3xl font-bold text-slate-800 tracking-tight">Generator Log Dashboard</h2>
+                                <h2 className="text-2xl md:text-3xl font-bold text-slate-800 tracking-tight">Generator Log Dashboard</h2>
                                 <p className="text-slate-500 mt-1">สรุปข้อมูลประสิทธิภาพและการขัดข้องของเครื่องกำเนิดไฟฟ้า</p>
                             </div>
-                            <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-semibold border border-indigo-100">
+                            <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-full text-sm font-semibold border border-indigo-100 whitespace-nowrap">
                                 รายการที่พบ: {filteredData.length} ครั้ง
                             </div>
                         </header>
 
-                        {/* Stats */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                             <StatCard title="จำนวนครั้งที่ดับ" value={`${stats.totalStops} ครั้ง`} subtext="ในช่วงเวลาที่เลือก" icon="alert-circle" colorClass="bg-indigo-500" />
                             <StatCard title="รวมระยะเวลาดับ" value={formatSecondsToText(stats.totalDowntimeSec)} icon="timer" colorClass="bg-rose-500" />
                             <StatCard title="เฉลี่ยต่อครั้ง" value={formatSecondsToText(stats.avgDowntimeSec)} icon="trending-up" colorClass="bg-amber-500" />
                             <StatCard title="ดับนานที่สุด" value={stats.maxDowntime.duration || "-"} subtext={`เมื่อ: ${stats.maxDowntime.date || '-'}`} icon="check-circle-2" colorClass="bg-emerald-500" />
                         </div>
 
-                        {/* Charts */}
+                        {/* Charts Section */}
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                             <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
                                 <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-slate-700">
                                     <Icon name="trending-up" className="text-indigo-500" /> แนวโน้มระยะเวลาที่ดับ (Timeline)
                                 </h3>
-                                <div className="h-[350px]">
+                                <div className="h-[350px] w-full">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <AreaChart data={filteredData}>
                                             <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                             <XAxis dataKey="stopTime" fontSize={11} stroke="#94a3b8" />
                                             <YAxis fontSize={11} stroke="#94a3b8" />
-                                            <RechartsTooltip formatter={(val) => formatSecondsToText(val)} contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}} />
+                                            <RechartsTooltip 
+                                                formatter={(val) => [formatSecondsToText(val), "ระยะเวลาที่ดับ"]} 
+                                                contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)'}} 
+                                            />
                                             <Area type="monotone" dataKey="durationSec" stroke="#6366f1" fill="#6366f1" fillOpacity={0.1} strokeWidth={3} />
                                         </AreaChart>
                                     </ResponsiveContainer>
@@ -237,10 +264,10 @@
                             </div>
                             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex flex-col">
                                 <h3 className="font-bold text-lg mb-6 text-center text-slate-700">สัดส่วนความรุนแรง</h3>
-                                <div className="flex-1">
+                                <div className="flex-1 h-[300px]">
                                     <ResponsiveContainer width="100%" height="100%">
                                         <PieChart>
-                                            <Pie data={stats.pieData} innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value">
+                                            <Pie data={stats.pieData} innerRadius={60} outerRadius={85} paddingAngle={5} dataKey="value" nameKey="name">
                                                 {stats.pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />)}
                                             </Pie>
                                             <RechartsTooltip />
@@ -251,7 +278,7 @@
                             </div>
                         </div>
 
-                        {/* Table */}
+                        {/* Data Table */}
                         <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                             <div className="p-6 border-b border-slate-100 bg-slate-50/50">
                                 <h3 className="font-bold text-lg flex items-center gap-2 text-slate-700">
@@ -271,7 +298,7 @@
                                         </tr>
                                     </thead>
                                     <tbody className="text-sm divide-y divide-slate-50">
-                                        {filteredData.map((row) => (
+                                        {filteredData.length > 0 ? filteredData.map((row) => (
                                             <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                                                 <td className="p-4 font-semibold text-slate-700">{row.date}</td>
                                                 <td className="p-4 text-slate-600">{row.stopTime}</td>
@@ -287,7 +314,11 @@
                                                     </span>
                                                 </td>
                                             </tr>
-                                        ))}
+                                        )) : (
+                                            <tr>
+                                                <td colSpan="6" className="p-10 text-center text-slate-400 font-medium">ไม่พบข้อมูลที่ต้องการ</td>
+                                            </tr>
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -297,7 +328,8 @@
             );
         }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
+        const container = document.getElementById('root');
+        const root = ReactDOM.createRoot(container);
         root.render(<App />);
     </script>
 </body>
