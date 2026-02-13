@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell 
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell, Legend 
 } from 'recharts';
 import { 
   LayoutDashboard, 
@@ -13,12 +13,15 @@ import {
   AlertTriangle,
   Menu,
   ChevronRight,
-  Timer
+  Timer,
+  UploadCloud,
+  FileText,
+  RefreshCcw,
+  X
 } from 'lucide-react';
 
-// --- Mock Data from User Snippet ---
-// จำลองข้อมูลจากไฟล์ CSV ของผู้ใช้เพื่อแสดงผลทันที
-const RAW_CSV_DATA = [
+// --- Default Demo Data (ข้อมูลตัวอย่าง) ---
+const DEMO_DATA = [
   { date: '27/01/2026', timeOff: '16:57:02', timeOn: '16:57:20', duration: '0:00:17', cumulative: '0:00:17' },
   { date: '27/01/2026', timeOff: '16:59:00', timeOn: '16:59:09', duration: '0:00:08', cumulative: '0:00:26' },
   { date: '28/01/2026', timeOff: '10:16:15', timeOn: '10:17:29', duration: '0:01:14', cumulative: '0:01:40' },
@@ -27,23 +30,19 @@ const RAW_CSV_DATA = [
   { date: '28/01/2026', timeOff: '11:21:18', timeOn: '11:21:48', duration: '0:00:30', cumulative: '0:49:33' },
   { date: '28/01/2026', timeOff: '11:23:33', timeOn: '11:27:07', duration: '0:03:34', cumulative: '0:53:07' },
   { date: '28/01/2026', timeOff: '11:48:07', timeOn: '11:50:59', duration: '0:02:52', cumulative: '0:56:00' },
-  { date: '29/01/2026', timeOff: '08:00:00', timeOn: '08:05:00', duration: '0:05:00', cumulative: '1:01:00' }, // Sample Data added
-  { date: '29/01/2026', timeOff: '14:30:00', timeOn: '14:32:00', duration: '0:02:00', cumulative: '1:03:00' }, // Sample Data added
 ];
 
 // --- Utility Functions ---
 
-// แปลง string เวลา "H:MM:SS" เป็น วินาที
 const timeToSeconds = (timeStr) => {
-  if (!timeStr || timeStr === '-') return 0;
-  const parts = timeStr.split(':').map(Number);
+  if (!timeStr || timeStr === '-' || typeof timeStr !== 'string') return 0;
+  const parts = timeStr.trim().split(':').map(Number);
   if (parts.length === 3) {
     return parts[0] * 3600 + parts[1] * 60 + parts[2];
   }
   return 0;
 };
 
-// แปลงวินาทีกลับเป็นข้อความสวยๆ
 const formatDuration = (seconds) => {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -53,18 +52,70 @@ const formatDuration = (seconds) => {
   return `${s} วินาที`;
 };
 
-// สีสำหรับกราฟ
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function GenLogDashboard() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [selectedDate, setSelectedDate] = useState('All');
-  const [minDuration, setMinDuration] = useState(0); // in seconds
+  const [minDuration, setMinDuration] = useState(0); 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  
+  // Data State
+  const [rawData, setRawData] = useState(DEMO_DATA);
+  const [fileName, setFileName] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // --- File Upload Handler ---
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.split('\n');
+      
+      // Basic CSV Parsing specific to user format
+      // Skip header line if it starts with (วันที่)
+      const parsedData = lines
+        .slice(1) // Assuming first row is header
+        .filter(line => line.trim() !== '')
+        .map(line => {
+          // Remove quotes and parentheses if any, split by comma
+          const cols = line.split(',').map(c => c.trim().replace(/[()"]/g, ''));
+          if (cols.length >= 5) {
+            return {
+              date: cols[0],
+              timeOff: cols[1],
+              timeOn: cols[2],
+              duration: cols[3],
+              cumulative: cols[4]
+            };
+          }
+          return null;
+        })
+        .filter(item => item !== null);
+
+      if (parsedData.length > 0) {
+        setRawData(parsedData);
+        setSelectedDate('All'); // Reset filter
+      } else {
+        alert("รูปแบบไฟล์ไม่ถูกต้อง กรุณาตรวจสอบไฟล์ CSV");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleResetData = () => {
+    setRawData(DEMO_DATA);
+    setFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   // --- Process Data ---
   const processedData = useMemo(() => {
-    return RAW_CSV_DATA.map((item, index) => {
+    return rawData.map((item, index) => {
       const durationSec = timeToSeconds(item.duration);
       const cumulativeSec = timeToSeconds(item.cumulative);
       return {
@@ -72,11 +123,10 @@ export default function GenLogDashboard() {
         ...item,
         durationSec,
         cumulativeSec,
-        // เพิ่ม category สำหรับ Pie Chart
         category: durationSec < 60 ? 'ต่ำกว่า 1 นาที' : durationSec < 300 ? '1-5 นาที' : 'มากกว่า 5 นาที'
       };
     });
-  }, []);
+  }, [rawData]);
 
   // --- Filter Data ---
   const filteredData = useMemo(() => {
@@ -87,13 +137,13 @@ export default function GenLogDashboard() {
     });
   }, [processedData, selectedDate, minDuration]);
 
-  // --- Statistics for Dashboard ---
+  // --- Statistics ---
   const stats = useMemo(() => {
     const totalEvents = filteredData.length;
     const totalDurationSec = filteredData.reduce((acc, curr) => acc + curr.durationSec, 0);
     const avgDurationSec = totalEvents > 0 ? totalDurationSec / totalEvents : 0;
     
-    // Group by Date for Bar Chart
+    // Group by Date
     const eventsByDate = {};
     filteredData.forEach(item => {
       if (!eventsByDate[item.date]) eventsByDate[item.date] = { date: item.date, count: 0, duration: 0 };
@@ -102,7 +152,7 @@ export default function GenLogDashboard() {
     });
     const chartDataByDate = Object.values(eventsByDate);
 
-    // Group by Category for Pie Chart
+    // Group by Category
     const eventsByCategory = {};
     filteredData.forEach(item => {
       if (!eventsByCategory[item.category]) eventsByCategory[item.category] = 0;
@@ -116,7 +166,6 @@ export default function GenLogDashboard() {
     return { totalEvents, totalDurationSec, avgDurationSec, chartDataByDate, pieChartData };
   }, [filteredData]);
 
-  // Get Unique Dates for Dropdown
   const uniqueDates = useMemo(() => {
     return ['All', ...new Set(processedData.map(d => d.date))];
   }, [processedData]);
@@ -127,10 +176,9 @@ export default function GenLogDashboard() {
       {/* --- Sidebar --- */}
       <aside 
         className={`bg-slate-900 text-white transition-all duration-300 ease-in-out flex flex-col shadow-xl z-20 ${
-          isSidebarOpen ? 'w-72' : 'w-20'
+          isSidebarOpen ? 'w-80' : 'w-20'
         }`}
       >
-        {/* Logo Area */}
         <div className="h-16 flex items-center justify-between px-6 border-b border-slate-700">
           <div className={`flex items-center gap-3 ${!isSidebarOpen && 'justify-center w-full'}`}>
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
@@ -145,33 +193,102 @@ export default function GenLogDashboard() {
           )}
         </div>
 
-        {/* Navigation Menu */}
-        <nav className="flex-1 py-6 px-3 space-y-2">
+        <nav className="flex-1 py-6 px-3 space-y-2 overflow-y-auto custom-scrollbar">
           <MenuItem 
             icon={<LayoutDashboard />} 
-            label="ภาพรวมระบบ" 
+            label="ภาพรวมระบบ (Dashboard)" 
             isActive={activeTab === 'dashboard'} 
             onClick={() => setActiveTab('dashboard')} 
             isOpen={isSidebarOpen}
           />
           <MenuItem 
             icon={<Table />} 
-            label="ตารางบันทึก (Log)" 
+            label="ตารางบันทึก (Data Logs)" 
             isActive={activeTab === 'table'} 
             onClick={() => setActiveTab('table')} 
             isOpen={isSidebarOpen}
           />
+
+          <div className="my-4 border-t border-slate-700/50 mx-2"></div>
+
+          {/* Upload Section */}
+          {isSidebarOpen ? (
+            <div className="px-3 py-2">
+              <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <UploadCloud className="w-3 h-3" /> นำเข้าข้อมูล (CSV)
+              </div>
+              
+              {!fileName ? (
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="border-2 border-dashed border-slate-600 rounded-xl p-4 text-center cursor-pointer hover:border-indigo-500 hover:bg-slate-800 transition-all group"
+                >
+                  <UploadCloud className="w-6 h-6 text-slate-500 group-hover:text-indigo-400 mx-auto mb-2" />
+                  <p className="text-xs text-slate-400">คลิกเพื่ออัปโหลดไฟล์</p>
+                  <p className="text-[10px] text-slate-500 mt-1">รองรับไฟล์ .csv</p>
+                </div>
+              ) : (
+                <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-xl p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="w-4 h-4 text-indigo-400" />
+                    <span className="text-xs text-indigo-200 truncate flex-1">{fileName}</span>
+                    <button onClick={handleResetData} className="text-slate-400 hover:text-white">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-1 text-[10px] text-green-400">
+                     <div className="w-1.5 h-1.5 rounded-full bg-green-400"></div>
+                     โหลดข้อมูลสำเร็จ ({processedData.length} รายการ)
+                  </div>
+                </div>
+              )}
+              <input 
+                type="file" 
+                ref={fileInputRef} 
+                className="hidden" 
+                accept=".csv"
+                onChange={handleFileUpload}
+              />
+              
+              {/* Show Reset if showing demo data explicitly (optional logic) */}
+              {!fileName && (
+                <div className="mt-2 flex items-center gap-1.5 px-2 py-1 bg-amber-900/20 text-amber-500 rounded text-[10px]">
+                   <AlertTriangle className="w-3 h-3" /> กำลังแสดงข้อมูลตัวอย่าง (Demo)
+                </div>
+              )}
+            </div>
+          ) : (
+             <div className="flex justify-center py-2">
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 bg-slate-800 rounded-lg hover:bg-indigo-600 transition-colors"
+                  title="Upload CSV"
+                >
+                  <UploadCloud className="w-5 h-5 text-slate-300" />
+                </button>
+             </div>
+          )}
+
         </nav>
 
         {/* Filters Section */}
         <div className="p-4 bg-slate-800/50 border-t border-slate-700">
            {isSidebarOpen ? (
              <div className="space-y-4">
-               <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm uppercase tracking-wider">
-                 <Filter className="w-4 h-4" /> ตัวกรองข้อมูล
+               <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm uppercase tracking-wider">
+                    <Filter className="w-4 h-4" /> ตัวกรอง
+                  </div>
+                  {(selectedDate !== 'All' || minDuration > 0) && (
+                    <button 
+                      onClick={() => {setSelectedDate('All'); setMinDuration(0);}}
+                      className="text-[10px] text-slate-400 hover:text-white flex items-center gap-1"
+                    >
+                      <RefreshCcw className="w-3 h-3" /> รีเซ็ต
+                    </button>
+                  )}
                </div>
                
-               {/* Date Filter */}
                <div className="space-y-1">
                  <label className="text-xs text-slate-400">เลือกวันที่</label>
                  <div className="relative">
@@ -188,7 +305,6 @@ export default function GenLogDashboard() {
                  </div>
                </div>
 
-               {/* Duration Filter */}
                <div className="space-y-1">
                  <div className="flex justify-between">
                     <label className="text-xs text-slate-400">ระยะเวลาดับขั้นต่ำ</label>
@@ -224,35 +340,31 @@ export default function GenLogDashboard() {
 
       {/* --- Main Content --- */}
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        {/* Top Header */}
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 shadow-sm">
            <div className="flex items-center gap-4">
              {!isSidebarOpen && (
                <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-full">
                  <Menu className="w-5 h-5 text-slate-600" />
                </button>
              )}
-             <h1 className="text-2xl font-bold text-slate-800">
-               {activeTab === 'dashboard' ? 'Dashboard สรุปผล' : 'บันทึกเหตุการณ์ (Log Table)'}
+             <h1 className="text-xl md:text-2xl font-bold text-slate-800 truncate">
+               {activeTab === 'dashboard' ? 'Dashboard สรุปผลการทำงาน' : 'บันทึกเหตุการณ์ (Log Table)'}
              </h1>
            </div>
-           <div className="flex items-center gap-3">
-              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium flex items-center gap-1">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                System Online
+           <div className="hidden md:flex items-center gap-3">
+              <span className={`px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${
+                fileName ? 'bg-indigo-100 text-indigo-700' : 'bg-emerald-100 text-emerald-700'
+              }`}>
+                <div className={`w-2 h-2 rounded-full animate-pulse ${fileName ? 'bg-indigo-500' : 'bg-emerald-500'}`}></div>
+                {fileName ? 'Custom Data Loaded' : 'System Demo Mode'}
               </span>
-              <div className="text-sm text-slate-500 text-right">
-                <div>อัปเดตล่าสุด</div>
-                <div className="font-medium text-slate-800">29/01/2026 14:35</div>
-              </div>
            </div>
         </header>
 
-        {/* Content Scrollable Area */}
-        <div className="flex-1 overflow-auto p-8">
+        <div className="flex-1 overflow-auto p-4 md:p-8">
           
           {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8">
             <StatCard 
               title="เหตุการณ์เครื่องดับ" 
               value={stats.totalEvents} 
@@ -356,12 +468,12 @@ export default function GenLogDashboard() {
                     </div>
                  </div>
                  <div className="flex-1 flex flex-col justify-center gap-4 text-sm text-slate-600 bg-slate-50 p-6 rounded-xl">
-                    <h4 className="font-semibold text-slate-800 mb-2">ข้อมูลเชิงลึก</h4>
-                    <p>• มีเหตุการณ์ไฟดับทั้งหมด <span className="font-bold text-indigo-600 text-lg">{stats.totalEvents}</span> ครั้ง ในช่วงเวลาที่เลือก</p>
-                    <p>• ระยะเวลาดับรวมทั้งหมดคือ <span className="font-bold text-amber-600">{formatDuration(stats.totalDurationSec)}</span></p>
-                    <p>• เฉลี่ยแล้วไฟดับแต่ละครั้งนานประมาณ <span className="font-bold text-emerald-600">{Math.round(stats.avgDurationSec)} วินาที</span></p>
+                    <h4 className="font-semibold text-slate-800 mb-2">บทวิเคราะห์ข้อมูล</h4>
+                    <p>• พบเหตุการณ์ทั้งหมด <span className="font-bold text-indigo-600 text-lg">{stats.totalEvents}</span> ครั้ง</p>
+                    <p>• เวลารวมทั้งหมด <span className="font-bold text-amber-600">{formatDuration(stats.totalDurationSec)}</span></p>
+                    <p>• ค่าเฉลี่ยต่อครั้ง <span className="font-bold text-emerald-600">{Math.round(stats.avgDurationSec)} วินาที</span></p>
                     {stats.chartDataByDate.length > 0 && (
-                      <p>• วันที่มีปัญหามากที่สุดคือวันที่ <span className="font-bold text-rose-600">{stats.chartDataByDate.sort((a,b) => b.count - a.count)[0].date}</span></p>
+                      <p>• วันที่เกิดเหตุสูงสุด <span className="font-bold text-rose-600">{stats.chartDataByDate.sort((a,b) => b.count - a.count)[0].date}</span></p>
                     )}
                  </div>
               </div>
@@ -370,50 +482,52 @@ export default function GenLogDashboard() {
           )}
 
           {/* Table View */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="font-semibold text-slate-700">รายการ Log ทั้งหมด</h3>
-              <span className="text-xs text-slate-500 bg-white px-2 py-1 rounded border border-slate-200">
-                แสดง {filteredData.length} รายการ
-              </span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wide">
-                    <th className="px-6 py-4 font-medium">วันที่</th>
-                    <th className="px-6 py-4 font-medium">เวลาเครื่องดับ</th>
-                    <th className="px-6 py-4 font-medium">เวลาเครื่องติด</th>
-                    <th className="px-6 py-4 font-medium">ระยะเวลาที่ดับ</th>
-                    <th className="px-6 py-4 font-medium">ดับสะสมทั้งหมด</th>
-                    <th className="px-6 py-4 font-medium">สถานะ</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredData.length > 0 ? (
-                    filteredData.map((row) => (
-                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors text-sm text-slate-700">
-                        <td className="px-6 py-4 font-medium">{row.date}</td>
-                        <td className="px-6 py-4 text-rose-600 font-mono">{row.timeOff}</td>
-                        <td className="px-6 py-4 text-emerald-600 font-mono">{row.timeOn}</td>
-                        <td className="px-6 py-4 font-mono font-medium">{row.duration}</td>
-                        <td className="px-6 py-4 text-slate-500 font-mono">{row.cumulative}</td>
-                        <td className="px-6 py-4">
-                          <StatusBadge durationSec={row.durationSec} />
+          {activeTab === 'table' && (
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                <h3 className="font-semibold text-slate-700">รายการ Log ทั้งหมด</h3>
+                <span className="text-xs text-slate-500 bg-white px-2 py-1 rounded border border-slate-200">
+                  แสดง {filteredData.length} รายการ
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wide">
+                      <th className="px-6 py-4 font-medium">วันที่</th>
+                      <th className="px-6 py-4 font-medium">เวลาเครื่องดับ</th>
+                      <th className="px-6 py-4 font-medium">เวลาเครื่องติด</th>
+                      <th className="px-6 py-4 font-medium">ระยะเวลาที่ดับ</th>
+                      <th className="px-6 py-4 font-medium">ดับสะสมทั้งหมด</th>
+                      <th className="px-6 py-4 font-medium">สถานะ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredData.length > 0 ? (
+                      filteredData.map((row) => (
+                        <tr key={row.id} className="hover:bg-slate-50/80 transition-colors text-sm text-slate-700">
+                          <td className="px-6 py-4 font-medium">{row.date}</td>
+                          <td className="px-6 py-4 text-rose-600 font-mono">{row.timeOff}</td>
+                          <td className="px-6 py-4 text-emerald-600 font-mono">{row.timeOn}</td>
+                          <td className="px-6 py-4 font-mono font-medium">{row.duration}</td>
+                          <td className="px-6 py-4 text-slate-500 font-mono">{row.cumulative}</td>
+                          <td className="px-6 py-4">
+                            <StatusBadge durationSec={row.durationSec} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                          ไม่พบข้อมูลตามเงื่อนไขที่เลือก
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
-                        ไม่พบข้อมูลตามเงื่อนไขที่เลือก
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          )}
 
         </div>
       </main>
@@ -427,7 +541,7 @@ function MenuItem({ icon, label, isActive, onClick, isOpen }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 mb-1 ${
         isActive 
           ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' 
           : 'text-slate-400 hover:bg-slate-800 hover:text-white'
@@ -437,7 +551,7 @@ function MenuItem({ icon, label, isActive, onClick, isOpen }) {
       <div className={`${isActive ? 'text-white' : 'text-slate-400'} shrink-0`}>
         {icon}
       </div>
-      {isOpen && <span className="font-medium whitespace-nowrap">{label}</span>}
+      {isOpen && <span className="font-medium whitespace-nowrap text-sm">{label}</span>}
     </button>
   );
 }
@@ -450,7 +564,7 @@ function StatCard({ title, value, unit, icon, color }) {
         <div className="p-2 bg-slate-50 rounded-lg">{icon}</div>
       </div>
       <div className="flex items-baseline gap-2">
-        <span className="text-3xl font-bold text-slate-800">{value}</span>
+        <span className="text-2xl md:text-3xl font-bold text-slate-800">{value}</span>
         <span className="text-sm text-slate-500 font-medium">{unit}</span>
       </div>
     </div>
