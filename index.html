@@ -1,89 +1,402 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>JKR Dashboard</title>
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      padding-top: 40px;
-      background-color: #f5f5f5;
-    }
-    .status-box {
-      display: inline-block;
-      margin: 30px;
-    }
-    .status-circle {
-      width: 100px;
-      height: 100px;
-      border-radius: 50%;
-      margin: 10px auto;
-      transition: background-color 0.3s ease;
-    }
-    .status-on {
-      background-color: #00cc66;
-    }
-    .status-off {
-      background-color: #cc0000;
-    }
-    .label {
-      font-size: 2em;
-      font-weight: bold;
-    }
-    h2 {
-      margin-bottom: 10px;
-    }
-  </style>
-</head>
-<body>
-  <div class="status-box">
-    <h2>📶 สถานะเครื่องผลิตไฟฟ้า 370 kW</h2>
-    <div id="circle1" class="status-circle status-off"></div>
-    <div id="label1" class="label">OFF</div>
-  </div>
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area
+} from 'recharts';
+import { 
+  LayoutDashboard, Calendar, Clock, Filter, Upload, FileText, 
+  ChevronRight, AlertCircle, CheckCircle2, Timer, TrendingUp 
+} from 'lucide-react';
 
-  <div class="status-box">
-    <h2>📶 สถานะเครื่องผลิตไฟฟ้า 550 kW</h2>
-    <div id="circle2" class="status-circle status-off"></div>
-    <div id="label2" class="label">OFF</div>
-  </div>
+// --- Helper Functions ---
 
-  <!-- Firebase SDK v8 -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-  <script>
-    // 🔧 Firebase Config
-    const firebaseConfig = {
-      apiKey: "AIzaSyAqqvsIGXHb_IkFEtFmZ-AjDxoRPqX8ZX4",
-      databaseURL: "https://farm-control-2568-default-rtdb.firebaseio.com",
-      projectId: "farm-control-2568"
+// แปลงระยะเวลา (H:MM:SS) เป็นวินาที
+const parseDurationToSeconds = (durationStr) => {
+  if (!durationStr || durationStr === '-') return 0;
+  const parts = durationStr.split(':').map(Number);
+  let seconds = 0;
+  if (parts.length === 3) {
+    seconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
+  } else if (parts.length === 2) {
+    seconds = parts[0] * 60 + parts[1];
+  }
+  return seconds;
+};
+
+// แปลงวินาทีกลับเป็นข้อความอ่านง่าย (เช่น 1h 20m 5s)
+const formatSecondsToText = (totalSeconds) => {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  
+  if (h > 0) return `${h} ชม. ${m} นาที`;
+  if (m > 0) return `${m} นาที ${s} วิ`;
+  return `${s} วินาที`;
+};
+
+// ข้อมูลตัวอย่างจากไฟล์ที่คุณให้มา (เพื่อเริ่มต้นใช้งานได้ทันที)
+const SAMPLE_DATA = [
+  { date: "27/01/2026", stopTime: "16:57:02", startTime: "16:57:20", duration: "0:00:17", cumulative: "0:00:17" },
+  { date: "27/01/2026", stopTime: "16:59:00", startTime: "16:59:09", duration: "0:00:08", cumulative: "0:00:26" },
+  { date: "28/01/2026", stopTime: "10:16:15", startTime: "10:17:29", duration: "0:01:14", cumulative: "0:01:40" },
+  { date: "28/01/2026", stopTime: "10:17:52", startTime: "10:18:03", duration: "0:00:11", cumulative: "0:01:51" },
+  { date: "28/01/2026", stopTime: "-", startTime: "11:20:01", duration: "0:47:11", cumulative: "0:49:03" },
+  { date: "28/01/2026", stopTime: "11:21:18", startTime: "11:21:48", duration: "0:00:30", cumulative: "0:49:33" },
+  { date: "28/01/2026", stopTime: "11:23:33", startTime: "11:27:07", duration: "0:03:34", cumulative: "0:53:07" },
+  { date: "28/01/2026", stopTime: "11:48:07", startTime: "11:50:59", duration: "0:02:52", cumulative: "0:56:00" },
+];
+
+const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#10b981', '#f59e0b'];
+
+export default function GenLogDashboard() {
+  const [data, setData] = useState([]);
+  const [selectedDate, setSelectedDate] = useState('All');
+  const [minDurationFilter, setMinDurationFilter] = useState(0); // in seconds
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Load sample data on mount
+  useEffect(() => {
+    const processed = SAMPLE_DATA.map((item, index) => ({
+      id: index,
+      ...item,
+      durationSec: parseDurationToSeconds(item.duration),
+      cumulativeSec: parseDurationToSeconds(item.cumulative)
+    }));
+    setData(processed);
+  }, []);
+
+  // --- Handlers ---
+
+  const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const lines = text.split('\n').filter(line => line.trim() !== '');
+      // Skip header (assuming row 1 is header based on snippet)
+      const dataRows = lines.slice(1);
+      
+      const parsedData = dataRows.map((line, index) => {
+        const cols = line.split(',');
+        // Defensive check for column length
+        if (cols.length < 5) return null;
+        
+        return {
+          id: index,
+          date: cols[0].trim(),
+          stopTime: cols[1].trim(),
+          startTime: cols[2].trim(),
+          duration: cols[3].trim(),
+          cumulative: cols[4].trim(),
+          durationSec: parseDurationToSeconds(cols[3].trim()),
+          cumulativeSec: parseDurationToSeconds(cols[4].trim())
+        };
+      }).filter(item => item !== null);
+
+      setData(parsedData);
+      setSelectedDate('All'); // Reset filter
     };
+    reader.readAsText(file);
+  };
 
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
+  // --- Filtering Logic ---
+  
+  const uniqueDates = useMemo(() => {
+    return ['All', ...new Set(data.map(item => item.date))];
+  }, [data]);
 
-    function updateStatus(path, circleId, labelId) {
-      db.ref(path).on("value", (snapshot) => {
-        const status = snapshot.val();
-        console.log(`สถานะ ${path}:`, status);
+  const filteredData = useMemo(() => {
+    return data.filter(item => {
+      const matchDate = selectedDate === 'All' || item.date === selectedDate;
+      const matchDuration = item.durationSec >= minDurationFilter;
+      return matchDate && matchDuration;
+    });
+  }, [data, selectedDate, minDurationFilter]);
 
-        const circle = document.getElementById(circleId);
-        const label = document.getElementById(labelId);
+  // --- Statistics Calculation ---
 
-        if (status === "ทำงาน" || status === "ON") {
-          circle.className = "status-circle status-on";
-          label.innerText = "ON";
-        } else {
-          circle.className = "status-circle status-off";
-          label.innerText = "OFF";
-        }
-      });
-    }
+  const stats = useMemo(() => {
+    const totalStops = filteredData.length;
+    const totalDowntimeSec = filteredData.reduce((acc, curr) => acc + curr.durationSec, 0);
+    const avgDowntimeSec = totalStops > 0 ? totalDowntimeSec / totalStops : 0;
+    const maxDowntime = filteredData.reduce((max, curr) => curr.durationSec > max.durationSec ? curr : max, { durationSec: 0 });
 
-    // 🟢 ใช้ฟังก์ชันเดียวกัน รับค่าจาก status1 และ status2
-    updateStatus("status1", "circle1", "label1");
-    updateStatus("status2", "circle2", "label2");
-  </script>
-</body>
-</html>
+    // Pie Chart Data: Categorize by duration
+    const categories = {
+      short: 0, // < 1 min
+      medium: 0, // 1-5 min
+      long: 0 // > 5 min
+    };
+    filteredData.forEach(d => {
+      if (d.durationSec < 60) categories.short++;
+      else if (d.durationSec < 300) categories.medium++;
+      else categories.long++;
+    });
+
+    const pieData = [
+      { name: 'น้อยกว่า 1 นาที', value: categories.short },
+      { name: '1 - 5 นาที', value: categories.medium },
+      { name: 'มากกว่า 5 นาที', value: categories.long },
+    ].filter(d => d.value > 0);
+
+    return { totalStops, totalDowntimeSec, avgDowntimeSec, maxDowntime, pieData };
+  }, [filteredData]);
+
+  // --- Components ---
+
+  const Sidebar = () => (
+    <div className={`bg-white h-screen fixed left-0 top-0 border-r border-slate-200 transition-all duration-300 z-20 ${isSidebarOpen ? 'w-64' : 'w-20'} flex flex-col shadow-lg`}>
+      <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+        {isSidebarOpen ? (
+          <h1 className="font-bold text-xl text-slate-800 flex items-center gap-2">
+            <LayoutDashboard className="text-indigo-600" />
+            Gen Log
+          </h1>
+        ) : (
+          <LayoutDashboard className="text-indigo-600 mx-auto" />
+        )}
+        <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-100 rounded text-slate-500">
+          <ChevronRight className={`transform transition-transform ${isSidebarOpen ? 'rotate-180' : ''}`} />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-6">
+        {/* Date Filter */}
+        <div className="space-y-2">
+          {isSidebarOpen && <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">ตัวกรองวันที่</label>}
+          <div className="relative">
+            <select 
+              value={selectedDate} 
+              onChange={(e) => setSelectedDate(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none text-slate-700"
+            >
+              {uniqueDates.map(date => <option key={date} value={date}>{date === 'All' ? 'แสดงทั้งหมด' : date}</option>)}
+            </select>
+            <Calendar className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          </div>
+        </div>
+
+        {/* Duration Filter */}
+        <div className="space-y-2">
+          {isSidebarOpen && <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider">กรองระยะเวลาดับ (ขั้นต่ำ)</label>}
+          <div className="relative">
+             <select 
+              value={minDurationFilter} 
+              onChange={(e) => setMinDurationFilter(Number(e.target.value))}
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none text-slate-700"
+            >
+              <option value={0}>ทั้งหมด</option>
+              <option value={60}>มากกว่า 1 นาที</option>
+              <option value={300}>มากกว่า 5 นาที</option>
+              <option value={1800}>มากกว่า 30 นาที</option>
+            </select>
+            <Clock className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+          </div>
+        </div>
+
+         {/* File Upload */}
+         {isSidebarOpen && (
+           <div className="pt-6 border-t border-slate-100 mt-4">
+             <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                <div className="flex flex-col items-center justify-center pt-2 pb-3">
+                    <Upload className="w-6 h-6 mb-2 text-slate-400" />
+                    <p className="text-xs text-slate-500">อัปโหลดไฟล์ CSV</p>
+                </div>
+                <input type="file" className="hidden" accept=".csv" onChange={handleFileUpload} />
+            </label>
+           </div>
+         )}
+      </div>
+
+      <div className="p-4 border-t border-slate-100 text-xs text-slate-400 text-center">
+        {isSidebarOpen && <p>Power Monitor v1.0</p>}
+      </div>
+    </div>
+  );
+
+  const StatCard = ({ title, value, subtext, icon: Icon, colorClass }) => (
+    <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 hover:shadow-md transition-shadow">
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm font-medium text-slate-500">{title}</p>
+          <h3 className="text-2xl font-bold text-slate-800 mt-1">{value}</h3>
+          {subtext && <p className="text-xs text-slate-400 mt-1">{subtext}</p>}
+        </div>
+        <div className={`p-3 rounded-lg ${colorClass}`}>
+          <Icon className="w-6 h-6 text-white" />
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-800">
+      <Sidebar />
+      
+      <main className={`transition-all duration-300 ${isSidebarOpen ? 'ml-64' : 'ml-20'} p-8`}>
+        
+        {/* Header */}
+        <div className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">Dashboard ประสิทธิภาพเครื่องกำเนิดไฟฟ้า</h2>
+            <p className="text-slate-500">ข้อมูลการทำงานและการหยุดชะงักของระบบ</p>
+          </div>
+          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg shadow-sm border border-slate-100">
+             <Filter className="w-4 h-4 text-indigo-500" />
+             <span className="text-sm font-medium">
+               แสดงผล: {filteredData.length} รายการ
+             </span>
+          </div>
+        </div>
+
+        {/* Stats Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          <StatCard 
+            title="จำนวนครั้งที่ดับ" 
+            value={`${stats.totalStops} ครั้ง`}
+            subtext="ในช่วงเวลาที่เลือก"
+            icon={AlertCircle}
+            colorClass="bg-indigo-500"
+          />
+          <StatCard 
+            title="รวมระยะเวลาดับ" 
+            value={formatSecondsToText(stats.totalDowntimeSec)}
+            icon={Timer}
+            colorClass="bg-rose-500"
+          />
+          <StatCard 
+            title="เฉลี่ยต่อครั้ง" 
+            value={formatSecondsToText(stats.avgDowntimeSec)}
+            icon={TrendingUp}
+            colorClass="bg-amber-500"
+          />
+           <StatCard 
+            title="ดับนานที่สุด" 
+            value={stats.maxDowntime.duration ? stats.maxDowntime.duration : "-"}
+            subtext={`เมื่อ: ${stats.maxDowntime.date || '-'}`}
+            icon={CheckCircle2}
+            colorClass="bg-emerald-500"
+          />
+        </div>
+
+        {/* Charts Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          
+          {/* Main Trend Chart */}
+          <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-indigo-500" />
+              แนวโน้มระยะเวลาที่ดับ (Timeline)
+            </h3>
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={filteredData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorDuration" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8}/>
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="stopTime" fontSize={12} stroke="#94a3b8" />
+                  <YAxis fontSize={12} stroke="#94a3b8" label={{ value: 'วินาที', angle: -90, position: 'insideLeft' }} />
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <RechartsTooltip 
+                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    formatter={(value) => [formatSecondsToText(value), 'ระยะเวลาดับ']}
+                  />
+                  <Area type="monotone" dataKey="durationSec" stroke="#6366f1" fillOpacity={1} fill="url(#colorDuration)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Pie Chart */}
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100">
+            <h3 className="font-bold text-lg mb-4 text-center">สัดส่วนความรุนแรง</h3>
+            <div className="h-64 relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={stats.pieData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={60}
+                    outerRadius={80}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {stats.pieData.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip />
+                  <Legend verticalAlign="bottom" height={36}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none">
+                 <span className="text-3xl font-bold text-slate-800">{stats.totalStops}</span>
+                 <p className="text-xs text-slate-400">Events</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Data Table */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+          <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-slate-500" />
+              บันทึกเหตุการณ์ทั้งหมด (Detailed Log)
+            </h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 text-sm">
+                  <th className="p-4 font-semibold">วันที่</th>
+                  <th className="p-4 font-semibold">เวลาเครื่องดับ</th>
+                  <th className="p-4 font-semibold">เวลาเครื่องติด</th>
+                  <th className="p-4 font-semibold">ระยะเวลาที่ดับ</th>
+                  <th className="p-4 font-semibold">ดับสะสมทั้งหมด</th>
+                  <th className="p-4 font-semibold text-center">สถานะ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-sm">
+                {filteredData.length > 0 ? (
+                  filteredData.map((row) => (
+                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-4 font-medium text-slate-700">{row.date}</td>
+                      <td className="p-4 text-slate-600">{row.stopTime}</td>
+                      <td className="p-4 text-slate-600">{row.startTime}</td>
+                      <td className="p-4 font-bold text-rose-600">{row.duration}</td>
+                      <td className="p-4 text-indigo-600">{row.cumulative}</td>
+                      <td className="p-4 text-center">
+                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${
+                          row.durationSec > 300 
+                            ? 'bg-rose-100 text-rose-600' 
+                            : row.durationSec > 60 
+                            ? 'bg-amber-100 text-amber-600' 
+                            : 'bg-emerald-100 text-emerald-600'
+                        }`}>
+                          {row.durationSec > 300 ? 'Critical' : row.durationSec > 60 ? 'Warning' : 'Minor'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="6" className="p-8 text-center text-slate-400">
+                      ไม่พบข้อมูลที่ตรงกับเงื่อนไข
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  );
+}
