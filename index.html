@@ -3,8 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generator Log Dashboard - Realtime & Dark Mode</title>
-    <!-- Tailwind CSS with Dark Mode Config -->
+    <title>Generator Realtime Monitoring</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -12,384 +11,320 @@
             theme: {
                 extend: {
                     colors: {
-                        slate: {
-                            750: '#2d3748', // Custom dark shade
-                            850: '#1a202c',
-                            900: '#0f172a', // Darker background
+                        brand: {
+                            primary: '#3b82f6',
+                            secondary: '#6366f1',
+                            dark: '#0f172a',
+                            surface: '#1e293b'
                         }
                     }
                 }
             }
         }
     </script>
-    <!-- React & Libraries -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
     <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/lucide-react"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=Sarabun:wght@300;400;600&display=swap');
         
-        body { font-family: 'Sarabun', sans-serif; transition: background-color 0.3s, color 0.3s; }
-        
-        /* Glassmorphism that adapts to dark mode */
-        .glass-card {
-            background: rgba(255, 255, 255, 0.9);
-            border: 1px solid rgba(226, 232, 240, 0.8);
-            border-radius: 1.5rem;
-            transition: all 0.3s ease;
+        body { 
+            font-family: 'Sarabun', sans-serif;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
-        .dark .glass-card {
-            background: rgba(30, 41, 59, 0.8); /* Slate-800 with opacity */
-            border: 1px solid rgba(51, 65, 85, 0.5);
+        
+        .header-font { font-family: 'Chakra Petch', sans-serif; }
+
+        .glass {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+        }
+        .dark .glass {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
         }
 
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .pulse {
+            animation: pulse-animation 2s infinite;
+        }
+        @keyframes pulse-animation {
+            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
+            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; }
-
-        .animate-fade-in { animation: fadeIn 0.5s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #3b82f6; border-radius: 10px; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100">
+<body class="bg-[#f8fafc] text-slate-900 dark:bg-[#020617] dark:text-slate-100 min-h-screen custom-scrollbar">
     <div id="root"></div>
 
     <script>
-        const { useState, useEffect, useMemo, useRef } = React;
+        const { useState, useEffect, useMemo } = React;
         const e = React.createElement;
-        const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } = window.Recharts;
+        const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie } = window.Recharts;
 
-        // --- SVG Icons ---
-        const Icon = ({ name, className = "w-5 h-5" }) => {
-            const paths = {
-                upload: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>`,
-                activity: `<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>`,
-                clock: `<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`,
-                database: `<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>`,
-                alert: `<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`,
-                download: `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>`,
-                moon: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`,
-                sun: `<circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>`,
-                settings: `<circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>`,
-                refresh: `<polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>`
-            };
-            return e('svg', {
-                dangerouslySetInnerHTML: { __html: paths[name] || '' },
-                viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: "2",
-                strokeLinecap: "round", strokeLinejoin: "round", className: className
-            });
+        // Configuration
+        const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT3bMRlkNzI9MlH2Ao1EHtRkAyPaat5PsM9Tt0AFjEQnjRASOSweRbk8l_2Nc-Rt9e37NejA7BVzsef/pub?gid=0&single=true&output=csv";
+
+        // Helpers
+        const parseTime = (str) => {
+            if (!str || str === '-') return 0;
+            const p = str.split(':').map(Number);
+            return p.length === 3 ? (p[0] * 3600 + p[1] * 60 + p[2]) : (p[0] * 60 + p[1]);
         };
 
-        // --- Utilities ---
-        const timeToSeconds = (str) => {
-            if (!str || str === '-' || typeof str !== 'string') return 0;
-            const parts = str.trim().split(':').map(Number);
-            if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-            if (parts.length === 2) return parts[0] * 60 + parts[1];
-            return 0;
+        const formatDuration = (sec) => {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            return h > 0 ? `${h}ชม. ${m}น.` : `${m}น. ${s}ว.`;
         };
 
-        const secondsToHms = (s) => {
-            const h = Math.floor(s / 3600);
-            const m = Math.floor((s % 3600) / 60);
-            const sec = s % 60;
-            if (h > 0) return `${h} ชม. ${m} นาที`;
-            if (m > 0) return `${m} นาที ${sec} วิ`;
-            return `${sec} วิ`;
+        const convertDateFormat = (thaiDate) => {
+            const [d, m, y] = thaiDate.split('/');
+            return `${y}-${m}-${d}`; // ISO format for easy comparison
         };
-
-        const INITIAL_DATA = [
-             { date: "27/01/2026", stop: "16:57:02", start: "16:57:20", dur: "0:00:17", cum: "0:00:17" },
-             { date: "28/01/2026", stop: "10:16:15", start: "10:17:29", dur: "0:01:14", cum: "0:01:40" },
-        ]; // Just a small sample
 
         function App() {
             const [data, setData] = useState([]);
-            const [filterDate, setFilterDate] = useState('All');
-            const [darkMode, setDarkMode] = useState(false);
-            const [showSettings, setShowSettings] = useState(false);
-            const [sheetUrl, setSheetUrl] = useState('');
-            const [isLoading, setIsLoading] = useState(false);
+            const [loading, setLoading] = useState(true);
+            const [darkMode, setDarkMode] = useState(true);
+            const [startDate, setStartDate] = useState('');
+            const [endDate, setEndDate] = useState('');
+            const [lastUpdated, setLastUpdated] = useState(new Date());
 
-            // Theme Effect
+            // Initialize theme
             useEffect(() => {
                 if (darkMode) document.documentElement.classList.add('dark');
                 else document.documentElement.classList.remove('dark');
             }, [darkMode]);
 
-            // Load saved settings & Initial Data
-            useEffect(() => {
-                const savedUrl = localStorage.getItem('genLog_sheetUrl');
-                if (savedUrl) {
-                    setSheetUrl(savedUrl);
-                    fetchSheetData(savedUrl);
-                } else {
-                    // Load sample data if no sheet connected
-                    processData(INITIAL_DATA);
-                }
-
-                // Auto Refresh Timer (every 60s if URL exists)
-                const interval = setInterval(() => {
-                    if (localStorage.getItem('genLog_sheetUrl')) {
-                        fetchSheetData(localStorage.getItem('genLog_sheetUrl'), true); // Silent refresh
+            const fetchData = async () => {
+                try {
+                    const res = await fetch(`${SHEET_URL}&t=${new Date().getTime()}`);
+                    const text = await res.text();
+                    const rows = text.split('\n').filter(r => r.trim());
+                    const parsed = rows.slice(1).map((row, idx) => {
+                        const cols = row.split(',').map(c => c.trim().replace(/"/g, ''));
+                        return {
+                            id: idx,
+                            date: cols[0],
+                            isoDate: convertDateFormat(cols[0]),
+                            stop: cols[1],
+                            start: cols[2],
+                            dur: cols[3],
+                            cum: cols[4],
+                            durSec: parseTime(cols[3])
+                        };
+                    });
+                    setData(parsed);
+                    setLastUpdated(new Date());
+                    
+                    // Set default date range if not set
+                    if (parsed.length > 0 && !startDate) {
+                        setStartDate(parsed[0].isoDate);
+                        setEndDate(parsed[parsed.length - 1].isoDate);
                     }
-                }, 60000);
+                } catch (err) {
+                    console.error("Fetch error:", err);
+                } finally {
+                    setLoading(false);
+                }
+            };
 
+            useEffect(() => {
+                fetchData();
+                const interval = setInterval(fetchData, 30000); // Auto update every 30s
                 return () => clearInterval(interval);
             }, []);
 
-            const processData = (rawData) => {
-                const processed = rawData.map((d, i) => ({
-                    ...d, id: i, durSec: timeToSeconds(d.dur), cumSec: timeToSeconds(d.cum)
-                }));
-                setData(processed);
-            };
+            const filteredData = useMemo(() => {
+                return data.filter(item => {
+                    const d = item.isoDate;
+                    return (!startDate || d >= startDate) && (!endDate || d <= endDate);
+                });
+            }, [data, startDate, endDate]);
 
-            const fetchSheetData = async (url, silent = false) => {
-                if (!url) return;
-                if (!silent) setIsLoading(true);
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error("Connection failed");
-                    const text = await response.text();
-                    
-                    const rows = text.split('\n').filter(r => r.trim());
-                    // Assuming row 0 is header
-                    const parsed = rows.slice(1).map((row, i) => {
-                        // Handle CSV parsing carefully (simple split for now)
-                        const c = row.split(',').map(v => v.trim());
-                        return {
-                            id: i, date: c[0] || "", stop: c[1] || "", start: c[2] || "", 
-                            dur: c[3] || "0:00:00", cum: c[4] || "0:00:00"
-                        };
-                    });
-                    processData(parsed);
-                } catch (err) {
-                    console.error("Fetch Error:", err);
-                    if (!silent) alert("ไม่สามารถดึงข้อมูลจาก Google Sheet ได้\nกรุณาตรวจสอบลิงก์และสิทธิ์การเข้าถึง (Publish to Web -> CSV)");
-                } finally {
-                    if (!silent) setIsLoading(false);
-                }
-            };
-
-            const handleSaveSettings = () => {
-                localStorage.setItem('genLog_sheetUrl', sheetUrl);
-                fetchSheetData(sheetUrl);
-                setShowSettings(false);
-            };
-
-            const handleFileUpload = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    const text = evt.target.result;
-                    const rows = text.split('\n').filter(r => r.trim());
-                    const parsed = rows.slice(1).map((row, i) => {
-                        const c = row.split(',').map(v => v.trim());
-                        return {
-                            id: i, date: c[0], stop: c[1], start: c[2], dur: c[3], cum: c[4]
-                        };
-                    });
-                    processData(parsed);
-                    // Clear sheet url if manual upload
-                    setSheetUrl('');
-                    localStorage.removeItem('genLog_sheetUrl');
-                };
-                reader.readAsText(file);
-            };
-
-            const filteredData = useMemo(() => 
-                filterDate === 'All' ? data : data.filter(d => d.date === filterDate)
-            , [data, filterDate]);
-
-            const dateOptions = useMemo(() => ['All', ...new Set(data.map(d => d.date))], [data]);
-
-            const summary = useMemo(() => {
-                const total = filteredData.reduce((acc, cur) => acc + cur.durSec, 0);
-                const maxVal = Math.max(...filteredData.map(d => d.durSec), 0);
-                const maxRow = filteredData.find(d => d.durSec === maxVal);
+            const stats = useMemo(() => {
+                const totalSec = filteredData.reduce((acc, curr) => acc + curr.durSec, 0);
+                const maxSec = Math.max(...filteredData.map(d => d.durSec), 0);
                 return {
                     count: filteredData.length,
-                    totalStr: secondsToHms(total),
-                    avgStr: secondsToHms(Math.round(total / (filteredData.length || 1))),
-                    maxStr: maxRow ? maxRow.dur : '0:00:00',
-                    totalRaw: total
+                    total: formatDuration(totalSec),
+                    avg: formatDuration(Math.round(totalSec / (filteredData.length || 1))),
+                    max: formatDuration(maxSec)
                 };
             }, [filteredData]);
 
-            // Recharts Theme props
-            const chartStroke = darkMode ? '#94a3b8' : '#64748b';
-            const gridStroke = darkMode ? '#334155' : '#e2e8f0';
-            const tooltipBg = darkMode ? '#1e293b' : '#ffffff';
-            const tooltipColor = darkMode ? '#f1f5f9' : '#1e293b';
+            if (loading) return e('div', { className: "flex items-center justify-center h-screen bg-slate-900" }, [
+                e('div', { className: "text-center" }, [
+                    e('div', { className: "w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" }),
+                    e('p', { className: "text-blue-400 font-bold animate-pulse" }, "LOADING DASHBOARD...")
+                ])
+            ]);
 
-            return e('div', { className: "min-h-screen pb-12 px-4 md:px-8 max-w-7xl mx-auto space-y-6 animate-fade-in relative transition-colors duration-300" }, [
+            return e('div', { className: "max-w-[1400px] mx-auto p-4 md:p-8 space-y-8" }, [
                 
-                // --- Settings Modal ---
-                showSettings && e('div', { className: "fixed inset-0 bg-black/50 z-50 flex items-center justify-center backdrop-blur-sm p-4" }, 
-                    e('div', { className: "bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-md shadow-2xl animate-fade-in" }, [
-                        e('h3', { className: "text-lg font-bold mb-4 flex items-center gap-2 dark:text-white" }, [e(Icon, {name: 'database'}), "ตั้งค่าการเชื่อมต่อ"]),
-                        e('p', { className: "text-sm text-slate-500 dark:text-slate-400 mb-4" }, "วางลิงก์ Google Sheet ที่เผยแพร่เป็น CSV เพื่อดึงข้อมูลอัตโนมัติ"),
-                        e('input', { 
-                            className: "w-full p-3 border rounded-xl mb-4 text-sm dark:bg-slate-700 dark:border-slate-600 dark:text-white outline-none focus:ring-2 focus:ring-blue-500",
-                            placeholder: "https://docs.google.com/.../pub?output=csv",
-                            value: sheetUrl,
-                            onChange: (e) => setSheetUrl(e.target.value)
-                        }),
-                        e('div', { className: "flex justify-end gap-2" }, [
-                            e('button', { className: "px-4 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg", onClick: () => setShowSettings(false) }, "ยกเลิก"),
-                            e('button', { className: "px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 shadow-lg", onClick: handleSaveSettings }, "บันทึกและดึงข้อมูล")
-                        ])
-                    ])
-                ),
-
-                // --- Navbar ---
-                e('nav', { className: "flex justify-between items-center pt-6 mb-8" }, [
-                    e('div', { className: "flex items-center gap-2" }, [
-                        e('div', { className: "w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center text-white shadow-lg" }, 
-                            e(Icon, { name: 'activity' })
-                        ),
-                        e('div', null, [
-                            e('h1', { className: "font-bold text-xl leading-tight dark:text-white" }, "Gen Log"),
-                            e('p', { className: "text-xs text-slate-500 dark:text-slate-400" }, "Monitoring System")
+                // --- Header Section ---
+                e('header', { className: "flex flex-col md:flex-row justify-between items-start md:items-center gap-6" }, [
+                    e('div', null, [
+                        e('div', { className: "flex items-center gap-3 mb-1" }, [
+                            e('div', { className: "w-3 h-3 bg-emerald-500 rounded-full pulse" }),
+                            e('h1', { className: "header-font text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-blue-400 dark:to-emerald-400" }, "GENERATOR MONITORING")
+                        ]),
+                        e('p', { className: "text-slate-500 dark:text-slate-400 text-sm font-medium flex items-center gap-2" }, [
+                            "Real-time Data Update",
+                            e('span', { className: "px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px]" }, lastUpdated.toLocaleTimeString())
                         ])
                     ]),
-                    e('div', { className: "flex items-center gap-3" }, [
-                        // Refresh Button (Only if URL exists)
-                        sheetUrl && e('button', { 
-                            className: `p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition ${isLoading ? 'animate-spin' : ''}`,
-                            onClick: () => fetchSheetData(sheetUrl),
-                            title: "รีเฟรชข้อมูล"
-                        }, e(Icon, { name: 'refresh' })),
-                        // Settings Button
-                        e('button', { 
-                            className: "p-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition",
-                            onClick: () => setShowSettings(true),
-                            title: "ตั้งค่าการเชื่อมต่อ"
-                        }, e(Icon, { name: 'settings' })),
-                        // Dark Mode Toggle
-                        e('button', { 
-                            className: "p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-yellow-400 hover:shadow-md transition",
-                            onClick: () => setDarkMode(!darkMode)
-                        }, e(Icon, { name: darkMode ? 'sun' : 'moon' }))
-                    ])
-                ]),
-
-                // --- Controls & Stats ---
-                e('div', { className: "grid grid-cols-1 md:grid-cols-4 gap-6" }, [
-                    // Date Filter (Col 1)
-                    e('div', { className: "md:col-span-1" }, [
-                        e('select', { 
-                            className: "w-full p-4 rounded-2xl bg-white dark:bg-slate-800 dark:text-white border border-slate-200 dark:border-slate-700 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer",
-                            value: filterDate,
-                            onChange: (e) => setFilterDate(e.target.value)
-                        }, dateOptions.map(d => e('option', { key: d, value: d }, d === 'All' ? '📅 แสดงข้อมูลทุกวัน' : `📅 วันที่ ${d}`)))
-                    ]),
-                    // File Upload (Col 2)
-                    e('label', { className: "md:col-span-1 cursor-pointer group" }, [
-                        e('div', { className: "w-full p-4 rounded-2xl bg-white dark:bg-slate-800 border border-dashed border-slate-300 dark:border-slate-600 flex items-center justify-center gap-3 text-slate-500 dark:text-slate-400 hover:border-blue-500 hover:text-blue-500 transition shadow-sm" }, [
-                            e(Icon, { name: 'upload' }), 
-                            e('span', { className: "font-medium" }, "อัปโหลดไฟล์ CSV")
-                        ]),
-                        e('input', { type: 'file', className: "hidden", accept: ".csv", onChange: handleFileUpload })
-                    ]),
-                    // Stats Summary (Col 3-4)
-                    e('div', { className: "md:col-span-2 grid grid-cols-2 gap-4" }, [
-                        e('div', { className: "bg-blue-600 rounded-2xl p-4 text-white shadow-lg shadow-blue-200 dark:shadow-none flex flex-col justify-between" }, [
-                            e('div', { className: "flex justify-between items-start" }, [
-                                e('span', { className: "text-blue-100 text-xs font-bold uppercase" }, "เครื่องดับรวม"),
-                                e(Icon, { name: 'activity', className: "opacity-50" })
-                            ]),
-                            e('h3', { className: "text-2xl font-bold mt-2" }, summary.count + " ครั้ง")
-                        ]),
-                        e('div', { className: "bg-white dark:bg-slate-800 rounded-2xl p-4 border border-slate-200 dark:border-slate-700 shadow-sm flex flex-col justify-between" }, [
-                            e('div', { className: "flex justify-between items-start" }, [
-                                e('span', { className: "text-slate-400 text-xs font-bold uppercase" }, "เวลารวม"),
-                                e(Icon, { name: 'clock', className: "text-rose-500" })
-                            ]),
-                            e('h3', { className: "text-2xl font-bold mt-2 dark:text-white" }, summary.totalStr)
-                        ])
-                    ])
-                ]),
-
-                // --- Charts ---
-                e('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" }, [
-                    // Main Area Chart
-                    e('div', { className: "lg:col-span-2 glass-card p-6" }, [
-                        e('h3', { className: "font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2" }, [
-                            e('span', { className: "w-2 h-6 bg-blue-500 rounded-full" }), "แนวโน้มระยะเวลาการหยุดทำงาน (Timeline)"
-                        ]),
-                        e('div', { className: "h-[300px] w-full" }, e(ResponsiveContainer, null, e(AreaChart, { data: filteredData }, [
-                            e('defs', { key: 'defs' }, 
-                                e('linearGradient', { id: "colorDur", x1: "0", y1: "0", x2: "0", y2: "1" }, [
-                                    e('stop', { offset: "5%", stopColor: "#3b82f6", stopOpacity: 0.3 }),
-                                    e('stop', { offset: "95%", stopColor: "#3b82f6", stopOpacity: 0 })
-                                ])
-                            ),
-                            e(CartesianGrid, { strokeDasharray: "3 3", vertical: false, stroke: gridStroke }),
-                            e(XAxis, { dataKey: "stop", fontSize: 10, tick: {fill: chartStroke}, axisLine: false }),
-                            e(YAxis, { fontSize: 10, tick: {fill: chartStroke}, axisLine: false }),
-                            e(Tooltip, { 
-                                contentStyle: { backgroundColor: tooltipBg, borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1)', color: tooltipColor },
-                                itemStyle: { color: tooltipColor },
-                                formatter: (v) => [secondsToHms(v), "ระยะเวลา"]
+                    
+                    // Filter & Theme Controls
+                    e('div', { className: "flex flex-wrap items-center gap-3" }, [
+                        e('div', { className: "glass flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700" }, [
+                            e('input', { 
+                                type: 'date', 
+                                value: startDate, 
+                                onChange: (e) => setStartDate(e.target.value),
+                                className: "bg-transparent text-xs outline-none dark:text-white"
                             }),
-                            e(Area, { type: "monotone", dataKey: "durSec", stroke: "#3b82f6", strokeWidth: 3, fill: "url(#colorDur)" })
+                            e('span', { className: "text-slate-400 text-xs" }, "ถึง"),
+                            e('input', { 
+                                type: 'date', 
+                                value: endDate, 
+                                onChange: (e) => setEndDate(e.target.value),
+                                className: "bg-transparent text-xs outline-none dark:text-white"
+                            }),
+                        ]),
+                        e('button', { 
+                            onClick: () => setDarkMode(!darkMode),
+                            className: "p-3 rounded-xl glass hover:bg-white dark:hover:bg-slate-700 transition shadow-sm"
+                        }, darkMode ? "☀️" : "🌙")
+                    ])
+                ]),
+
+                // --- Stat Cards ---
+                e('div', { className: "grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6" }, [
+                    { label: "จำนวนครั้งที่ดับ", val: stats.count, unit: "ครั้ง", color: "from-blue-500 to-blue-700", icon: "🔌" },
+                    { label: "เวลารวมทั้งหมด", val: stats.total, unit: "", color: "from-indigo-500 to-purple-600", icon: "⏱️" },
+                    { label: "เฉลี่ยต่อครั้ง", val: stats.avg, unit: "", color: "from-emerald-500 to-teal-600", icon: "📊" },
+                    { label: "ดับนานที่สุด", val: stats.max, unit: "", color: "from-rose-500 to-orange-600", icon: "⚠️" }
+                ].map(s => e('div', { key: s.label, className: `relative overflow-hidden p-5 rounded-3xl bg-gradient-to-br ${s.color} text-white shadow-xl flex flex-col justify-between h-32 md:h-40` }, [
+                    e('span', { className: "text-white/70 text-xs font-bold uppercase tracking-wider" }, s.label),
+                    e('div', { className: "flex items-end justify-between" }, [
+                        e('div', null, [
+                            e('h3', { className: "header-font text-2xl md:text-3xl font-bold" }, s.val),
+                            e('span', { className: "text-[10px] text-white/80" }, s.unit)
+                        ]),
+                        e('span', { className: "text-3xl opacity-30" }, s.icon)
+                    ]),
+                    e('div', { className: "absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-2xl" })
+                ]))),
+
+                // --- Main Visualization ---
+                e('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" }, [
+                    // Large Area Chart
+                    e('div', { className: "lg:col-span-2 glass p-6 rounded-[2rem]" }, [
+                        e('div', { className: "flex justify-between items-center mb-8" }, [
+                            e('h3', { className: "header-font font-bold text-lg dark:text-white" }, "Timeline: ระยะเวลาการหยุดทำงาน (วินาที)"),
+                            e('span', { className: "text-[10px] bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 px-3 py-1 rounded-full font-bold" }, "HISTORICAL DATA")
+                        ]),
+                        e('div', { className: "h-[350px] w-full" }, e(ResponsiveContainer, null, e(AreaChart, { data: filteredData }, [
+                            e('defs', null, e('linearGradient', { id: "colorTrend", x1: "0", y1: "0", x2: "0", y2: "1" }, [
+                                e('stop', { offset: "5%", stopColor: "#3b82f6", stopOpacity: 0.3 }),
+                                e('stop', { offset: "95%", stopColor: "#3b82f6", stopOpacity: 0 })
+                            ])),
+                            e(CartesianGrid, { strokeDasharray: "3 3", vertical: false, stroke: darkMode ? "#334155" : "#e2e8f0" }),
+                            e(XAxis, { 
+                                dataKey: "stop", 
+                                fontSize: 10, 
+                                tick: {fill: darkMode ? "#94a3b8" : "#64748b"}, 
+                                axisLine: false,
+                                tickMargin: 10
+                            }),
+                            e(YAxis, { 
+                                fontSize: 10, 
+                                tick: {fill: darkMode ? "#94a3b8" : "#64748b"}, 
+                                axisLine: false,
+                                tickMargin: 10
+                            }),
+                            e(Tooltip, { 
+                                cursor: { stroke: '#3b82f6', strokeWidth: 2 },
+                                contentStyle: { 
+                                    backgroundColor: darkMode ? '#1e293b' : '#ffffff', 
+                                    borderRadius: '16px', 
+                                    border: 'none', 
+                                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
+                                    color: darkMode ? '#f1f5f9' : '#1e293b'
+                                },
+                                formatter: (v) => [formatDuration(v), "ระยะเวลาที่ดับ"]
+                            }),
+                            e(Area, { 
+                                type: "monotone", 
+                                dataKey: "durSec", 
+                                stroke: "#3b82f6", 
+                                strokeWidth: 4, 
+                                fill: "url(#colorTrend)",
+                                animationDuration: 1500
+                            })
                         ])))
                     ]),
-                    // Cumulative Bar Chart
-                    e('div', { className: "glass-card p-6" }, [
-                        e('h3', { className: "font-bold text-slate-800 dark:text-white mb-2" }, "สรุปรายวัน"),
-                        e('p', { className: "text-xs text-slate-400 mb-6" }, "รวมเวลาดับแยกตามวัน"),
-                        e('div', { className: "h-[300px] w-full" }, e(ResponsiveContainer, null, e(BarChart, { 
-                            data: dateOptions.filter(d => d !== 'All').map(d => ({
-                                date: d,
-                                total: data.filter(row => row.date === d).reduce((a, b) => a + b.durSec, 0)
+
+                    // Summary Bar Chart
+                    e('div', { className: "glass p-6 rounded-[2rem] flex flex-col" }, [
+                        e('h3', { className: "header-font font-bold text-lg mb-2 dark:text-white" }, "Daily Analysis"),
+                        e('p', { className: "text-xs text-slate-400 mb-8" }, "เปรียบเทียบเวลารวมรายวัน"),
+                        e('div', { className: "flex-1 min-h-[300px]" }, e(ResponsiveContainer, null, e(BarChart, { 
+                            data: Array.from(new Set(filteredData.map(d => d.date))).map(date => ({
+                                date,
+                                total: filteredData.filter(item => item.date === date).reduce((a, b) => a + b.durSec, 0)
                             }))
                         }, [
-                            e(XAxis, { dataKey: "date", fontSize: 10, tick: {fill: chartStroke}, axisLine: false }),
+                            e(XAxis, { dataKey: "date", fontSize: 9, tick: {fill: "#94a3b8"}, axisLine: false }),
                             e(Tooltip, { 
-                                cursor: {fill: 'transparent'},
-                                contentStyle: { backgroundColor: tooltipBg, borderRadius: '12px', border: 'none', color: tooltipColor },
-                                itemStyle: { color: tooltipColor },
-                                formatter: (v) => [secondsToHms(v), "เวลารวม"]
+                                cursor: {fill: 'rgba(59, 130, 246, 0.1)', radius: 10},
+                                contentStyle: { backgroundColor: darkMode ? '#0f172a' : '#fff', border: 'none', borderRadius: '12px' },
+                                formatter: (v) => [formatDuration(v), "เวลารวม"]
                             }),
-                            e(Bar, { dataKey: "total", radius: [6, 6, 0, 0] }, [
-                                e(Cell, { fill: "#3b82f6" }), e(Cell, { fill: "#f59e0b" })
-                            ])
+                            e(Bar, { dataKey: "total", radius: [10, 10, 0, 0] }, 
+                                filteredData.map((entry, index) => e(Cell, { key: index, fill: index % 2 === 0 ? '#3b82f6' : '#6366f1' }))
+                            )
                         ])))
                     ])
                 ]),
 
                 // --- Detailed Table ---
-                e('div', { className: "glass-card overflow-hidden" }, [
-                    e('div', { className: "p-6 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex justify-between items-center" }, [
-                        e('h3', { className: "font-bold text-slate-800 dark:text-white" }, "บันทึกเหตุการณ์ (Detailed Log)"),
-                        e('button', { className: "text-xs font-bold text-blue-600 hover:underline flex items-center gap-1", onClick: () => window.print() }, [e(Icon, {name: 'download'}), "พิมพ์รายงาน"])
+                e('div', { className: "glass rounded-[2rem] overflow-hidden" }, [
+                    e('div', { className: "p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center" }, [
+                        e('h3', { className: "header-font font-bold text-lg dark:text-white" }, "Detailed Log Table"),
+                        e('button', { className: "px-4 py-2 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-xl text-xs font-bold hover:scale-105 transition" }, "EXPORT PDF")
                     ]),
-                    e('div', { className: "overflow-x-auto custom-scrollbar" }, e('table', { className: "w-full text-left" }, [
-                        e('thead', { className: "bg-slate-50 dark:bg-slate-800 text-[10px] text-slate-400 uppercase font-bold tracking-widest" }, e('tr', null, 
-                            ['วันที่', 'เวลาดับ', 'เวลาติด', 'ระยะเวลา', 'สะสม', 'สถานะ'].map(h => e('th', { key: h, className: "px-6 py-4 font-semibold" }, h))
+                    e('div', { className: "overflow-x-auto" }, e('table', { className: "w-full" }, [
+                        e('thead', { className: "bg-slate-50/50 dark:bg-slate-900/50 text-[10px] text-slate-400 font-bold uppercase tracking-widest" }, e('tr', null, 
+                            ['วันที่', 'เครื่องดับ (Stop)', 'เครื่องติด (Start)', 'ระยะเวลา', 'สะสม (Cumulative)', 'Status'].map(h => e('th', { className: "px-8 py-5" }, h))
                         )),
-                        e('tbody', { className: "text-sm divide-y divide-slate-100 dark:divide-slate-700" }, filteredData.map(r => e('tr', { key: r.id, className: "hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors" }, [
-                            e('td', { className: "px-6 py-4 font-medium text-slate-700 dark:text-slate-200" }, r.date),
-                            e('td', { className: "px-6 py-4 text-slate-500 dark:text-slate-400" }, r.stop),
-                            e('td', { className: "px-6 py-4 text-slate-500 dark:text-slate-400" }, r.start),
-                            e('td', { className: "px-6 py-4" }, e('span', { className: "font-bold text-rose-500" }, r.dur)),
-                            e('td', { className: "px-6 py-4 font-bold text-blue-600 dark:text-blue-400" }, r.cum),
-                            e('td', { className: "px-6 py-4" }, e('span', { 
-                                className: `px-2 py-1 rounded-md text-[10px] font-bold uppercase ${r.durSec > 300 ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400' : r.durSec > 60 ? 'bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'}` 
-                            }, r.durSec > 300 ? 'Critical' : r.durSec > 60 ? 'Warning' : 'Normal'))
+                        e('tbody', { className: "divide-y divide-slate-100 dark:divide-slate-800" }, filteredData.slice().reverse().map(r => e('tr', { key: r.id, className: "hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors" }, [
+                            e('td', { className: "px-8 py-4 font-semibold text-sm" }, r.date),
+                            e('td', { className: "px-8 py-4 text-slate-500 text-sm" }, r.stop),
+                            e('td', { className: "px-8 py-4 text-slate-500 text-sm" }, r.start),
+                            e('td', { className: "px-8 py-4" }, e('span', { className: "font-bold text-rose-500" }, r.dur)),
+                            e('td', { className: "px-8 py-4 font-bold text-blue-500" }, r.cum),
+                            e('td', { className: "px-8 py-4" }, e('div', { className: "flex items-center gap-2" }, [
+                                e('span', { className: `w-2 h-2 rounded-full ${r.durSec > 300 ? 'bg-rose-500' : r.durSec > 60 ? 'bg-amber-500' : 'bg-emerald-500'}` }),
+                                e('span', { className: "text-[10px] font-bold opacity-70" }, r.durSec > 300 ? 'SEVERE' : r.durSec > 60 ? 'WARNING' : 'NORMAL')
+                            ]))
                         ])))
                     ]))
                 ]),
 
-                // --- Footer ---
-                e('footer', { className: "text-center pt-8 border-t border-slate-200 dark:border-slate-700" }, [
-                    e('p', { className: "text-[10px] text-slate-400 uppercase" }, "Generator Monitoring System v3.0 - Realtime & Dark Mode")
+                e('footer', { className: "text-center py-10" }, [
+                    e('p', { className: "text-[10px] text-slate-400 font-bold tracking-[0.2em]" }, "DESIGNED FOR HIGH PERFORMANCE MONITORING • 2026")
                 ])
             ]);
         }
