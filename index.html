@@ -25,7 +25,6 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-    <script src="https://unpkg.com/lucide-react"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=Sarabun:wght@300;400;600&display=swap');
         
@@ -68,28 +67,36 @@
     <script>
         const { useState, useEffect, useMemo } = React;
         const e = React.createElement;
-        const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell, PieChart, Pie } = window.Recharts;
+        const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Cell } = window.Recharts;
 
-        // Configuration
+        // ลิงก์ข้อมูล CSV จาก Google Sheets
         const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vT3bMRlkNzI9MlH2Ao1EHtRkAyPaat5PsM9Tt0AFjEQnjRASOSweRbk8l_2Nc-Rt9e37NejA7BVzsef/pub?gid=0&single=true&output=csv";
 
-        // Helpers
+        // แปลงเวลา "HH:MM:SS" เป็นวินาที
         const parseTime = (str) => {
-            if (!str || str === '-') return 0;
-            const p = str.split(':').map(Number);
-            return p.length === 3 ? (p[0] * 3600 + p[1] * 60 + p[2]) : (p[0] * 60 + p[1]);
+            if (!str || str === '-' || typeof str !== 'string') return 0;
+            const p = str.trim().split(':').map(Number);
+            if (p.length === 3) return (p[0] * 3600 + p[1] * 60 + p[2]);
+            if (p.length === 2) return (p[0] * 60 + p[1]);
+            return 0;
         };
 
+        // แปลงวินาทีเป็นข้อความภาษาไทย
         const formatDuration = (sec) => {
+            if (isNaN(sec) || sec === 0) return "0 ว.";
             const h = Math.floor(sec / 3600);
             const m = Math.floor((sec % 3600) / 60);
             const s = sec % 60;
-            return h > 0 ? `${h}ชม. ${m}น.` : `${m}น. ${s}ว.`;
+            return h > 0 ? `${h}ชม. ${m}น.` : m > 0 ? `${m}น. ${s}ว.` : `${s}ว.`;
         };
 
+        // แปลงวันที่ "DD/MM/YYYY" เป็น "YYYY-MM-DD"
         const convertDateFormat = (thaiDate) => {
-            const [d, m, y] = thaiDate.split('/');
-            return `${y}-${m}-${d}`; // ISO format for easy comparison
+            if (!thaiDate || !thaiDate.includes('/')) return '';
+            const parts = thaiDate.split('/');
+            if (parts.length !== 3) return '';
+            const [d, m, y] = parts;
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
         };
 
         function App() {
@@ -99,20 +106,21 @@
             const [startDate, setStartDate] = useState('');
             const [endDate, setEndDate] = useState('');
             const [lastUpdated, setLastUpdated] = useState(new Date());
+            const [error, setError] = useState(null);
 
-            // Initialize theme
             useEffect(() => {
                 if (darkMode) document.documentElement.classList.add('dark');
                 else document.documentElement.classList.remove('dark');
             }, [darkMode]);
 
-            const fetchData = async () => {
+            const processCSVData = (text) => {
                 try {
-                    const res = await fetch(`${SHEET_URL}&t=${new Date().getTime()}`);
-                    const text = await res.text();
-                    const rows = text.split('\n').filter(r => r.trim());
+                    const rows = text.split(/\r?\n/).filter(r => r.trim());
+                    if (rows.length < 2) return;
+                    
                     const parsed = rows.slice(1).map((row, idx) => {
-                        const cols = row.split(',').map(c => c.trim().replace(/"/g, ''));
+                        // แยก CSV แบบรองรับเครื่องหมายคำพูด
+                        const cols = row.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(c => c.trim().replace(/"/g, ''));
                         return {
                             id: idx,
                             date: cols[0],
@@ -123,70 +131,92 @@
                             cum: cols[4],
                             durSec: parseTime(cols[3])
                         };
-                    });
+                    }).filter(item => item.isoDate !== '');
+
                     setData(parsed);
-                    setLastUpdated(new Date());
+                    setError(null);
                     
-                    // Set default date range if not set
                     if (parsed.length > 0 && !startDate) {
-                        setStartDate(parsed[0].isoDate);
-                        setEndDate(parsed[parsed.length - 1].isoDate);
+                        const sorted = [...parsed].sort((a, b) => a.isoDate.localeCompare(b.isoDate));
+                        setStartDate(sorted[0].isoDate);
+                        setEndDate(sorted[sorted.length - 1].isoDate);
                     }
                 } catch (err) {
+                    console.error("Parse error:", err);
+                    setError("รูปแบบไฟล์ข้อมูลไม่ถูกต้อง");
+                }
+            };
+
+            const fetchData = async () => {
+                try {
+                    const res = await fetch(`${SHEET_URL}&t=${new Date().getTime()}`, { cache: 'no-store' });
+                    if (!res.ok) throw new Error("Network response was not ok");
+                    const text = await res.text();
+                    processCSVData(text);
+                    setLastUpdated(new Date());
+                } catch (err) {
                     console.error("Fetch error:", err);
+                    setError("ไม่สามารถดึงข้อมูลอัตโนมัติได้ (CORS Limit)");
                 } finally {
                     setLoading(false);
                 }
             };
 
+            const handleManualUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    processCSVData(evt.target.result);
+                    setLoading(false);
+                };
+                reader.readAsText(file);
+            };
+
             useEffect(() => {
                 fetchData();
-                const interval = setInterval(fetchData, 30000); // Auto update every 30s
+                const interval = setInterval(fetchData, 60000); 
                 return () => clearInterval(interval);
             }, []);
 
             const filteredData = useMemo(() => {
                 return data.filter(item => {
-                    const d = item.isoDate;
-                    return (!startDate || d >= startDate) && (!endDate || d <= endDate);
-                });
+                    return (!startDate || item.isoDate >= startDate) && (!endDate || item.isoDate <= endDate);
+                }).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
             }, [data, startDate, endDate]);
 
             const stats = useMemo(() => {
                 const totalSec = filteredData.reduce((acc, curr) => acc + curr.durSec, 0);
-                const maxSec = Math.max(...filteredData.map(d => d.durSec), 0);
+                const maxSec = filteredData.length > 0 ? Math.max(...filteredData.map(d => d.durSec)) : 0;
                 return {
                     count: filteredData.length,
                     total: formatDuration(totalSec),
-                    avg: formatDuration(Math.round(totalSec / (filteredData.length || 1))),
+                    avg: formatDuration(filteredData.length > 0 ? Math.round(totalSec / filteredData.length) : 0),
                     max: formatDuration(maxSec)
                 };
             }, [filteredData]);
 
-            if (loading) return e('div', { className: "flex items-center justify-center h-screen bg-slate-900" }, [
-                e('div', { className: "text-center" }, [
-                    e('div', { className: "w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" }),
-                    e('p', { className: "text-blue-400 font-bold animate-pulse" }, "LOADING DASHBOARD...")
-                ])
-            ]);
-
+            // UI Render
             return e('div', { className: "max-w-[1400px] mx-auto p-4 md:p-8 space-y-8" }, [
                 
-                // --- Header Section ---
+                // --- Header ---
                 e('header', { className: "flex flex-col md:flex-row justify-between items-start md:items-center gap-6" }, [
                     e('div', null, [
                         e('div', { className: "flex items-center gap-3 mb-1" }, [
-                            e('div', { className: "w-3 h-3 bg-emerald-500 rounded-full pulse" }),
-                            e('h1', { className: "header-font text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-blue-400 dark:to-emerald-400" }, "GENERATOR MONITORING")
+                            e('div', { className: `w-3 h-3 rounded-full ${error ? 'bg-rose-500' : 'bg-emerald-500 pulse'}` }),
+                            e('h1', { className: "header-font text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-blue-400 dark:to-emerald-400" }, "GENERATOR DASHBOARD")
                         ]),
-                        e('p', { className: "text-slate-500 dark:text-slate-400 text-sm font-medium flex items-center gap-2" }, [
-                            "Real-time Data Update",
-                            e('span', { className: "px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-800 text-[10px]" }, lastUpdated.toLocaleTimeString())
-                        ])
+                        e('p', { className: "text-slate-500 dark:text-slate-400 text-sm font-medium" }, 
+                            error ? `⚠️ ${error}` : `อัปเดตล่าสุด: ${lastUpdated.toLocaleTimeString()}`
+                        )
                     ]),
                     
-                    // Filter & Theme Controls
                     e('div', { className: "flex flex-wrap items-center gap-3" }, [
+                        // Manual Upload Fallback
+                        e('label', { className: "glass px-4 py-2 rounded-xl text-xs font-bold cursor-pointer hover:bg-white dark:hover:bg-slate-700 transition flex items-center gap-2" }, [
+                            "📂 อัปโหลด CSV",
+                            e('input', { type: 'file', accept: '.csv', className: 'hidden', onChange: handleManualUpload })
+                        ]),
                         e('div', { className: "glass flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700" }, [
                             e('input', { 
                                 type: 'date', 
@@ -194,7 +224,7 @@
                                 onChange: (e) => setStartDate(e.target.value),
                                 className: "bg-transparent text-xs outline-none dark:text-white"
                             }),
-                            e('span', { className: "text-slate-400 text-xs" }, "ถึง"),
+                            e('span', { className: "text-slate-400 text-xs" }, "-"),
                             e('input', { 
                                 type: 'date', 
                                 value: endDate, 
@@ -204,128 +234,83 @@
                         ]),
                         e('button', { 
                             onClick: () => setDarkMode(!darkMode),
-                            className: "p-3 rounded-xl glass hover:bg-white dark:hover:bg-slate-700 transition shadow-sm"
+                            className: "p-2.5 rounded-xl glass hover:bg-white dark:hover:bg-slate-700 transition"
                         }, darkMode ? "☀️" : "🌙")
                     ])
                 ]),
 
-                // --- Stat Cards ---
+                // --- Summary Cards ---
                 e('div', { className: "grid grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6" }, [
-                    { label: "จำนวนครั้งที่ดับ", val: stats.count, unit: "ครั้ง", color: "from-blue-500 to-blue-700", icon: "🔌" },
-                    { label: "เวลารวมทั้งหมด", val: stats.total, unit: "", color: "from-indigo-500 to-purple-600", icon: "⏱️" },
-                    { label: "เฉลี่ยต่อครั้ง", val: stats.avg, unit: "", color: "from-emerald-500 to-teal-600", icon: "📊" },
-                    { label: "ดับนานที่สุด", val: stats.max, unit: "", color: "from-rose-500 to-orange-600", icon: "⚠️" }
-                ].map(s => e('div', { key: s.label, className: `relative overflow-hidden p-5 rounded-3xl bg-gradient-to-br ${s.color} text-white shadow-xl flex flex-col justify-between h-32 md:h-40` }, [
-                    e('span', { className: "text-white/70 text-xs font-bold uppercase tracking-wider" }, s.label),
-                    e('div', { className: "flex items-end justify-between" }, [
-                        e('div', null, [
-                            e('h3', { className: "header-font text-2xl md:text-3xl font-bold" }, s.val),
-                            e('span', { className: "text-[10px] text-white/80" }, s.unit)
-                        ]),
-                        e('span', { className: "text-3xl opacity-30" }, s.icon)
-                    ]),
-                    e('div', { className: "absolute -right-4 -bottom-4 w-24 h-24 bg-white/10 rounded-full blur-2xl" })
+                    { label: "จำนวนครั้งที่ดับ", val: stats.count, unit: "ครั้ง", color: "from-blue-600 to-blue-400" },
+                    { label: "เวลารวม", val: stats.total, unit: "", color: "from-indigo-600 to-purple-500" },
+                    { label: "เฉลี่ยต่อครั้ง", val: stats.avg, unit: "", color: "from-emerald-600 to-teal-500" },
+                    { label: "นานที่สุด", val: stats.max, unit: "", color: "from-rose-600 to-orange-500" }
+                ].map(s => e('div', { key: s.label, className: `p-6 rounded-3xl bg-gradient-to-br ${s.color} text-white shadow-xl shadow-blue-500/10` }, [
+                    e('p', { className: "text-white/70 text-[10px] font-bold uppercase tracking-widest mb-2" }, s.label),
+                    e('h3', { className: "header-font text-2xl font-bold" }, s.val),
+                    e('p', { className: "text-xs text-white/50" }, s.unit)
                 ]))),
 
-                // --- Main Visualization ---
+                // --- Charts ---
                 e('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" }, [
-                    // Large Area Chart
                     e('div', { className: "lg:col-span-2 glass p-6 rounded-[2rem]" }, [
-                        e('div', { className: "flex justify-between items-center mb-8" }, [
-                            e('h3', { className: "header-font font-bold text-lg dark:text-white" }, "Timeline: ระยะเวลาการหยุดทำงาน (วินาที)"),
-                            e('span', { className: "text-[10px] bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300 px-3 py-1 rounded-full font-bold" }, "HISTORICAL DATA")
-                        ]),
-                        e('div', { className: "h-[350px] w-full" }, e(ResponsiveContainer, null, e(AreaChart, { data: filteredData }, [
+                        e('h3', { className: "header-font font-bold mb-6 dark:text-white" }, "Timeline: การหยุดทำงาน (วินาที)"),
+                        e('div', { className: "h-[300px] w-full" }, e(ResponsiveContainer, null, e(AreaChart, { data: filteredData }, [
                             e('defs', null, e('linearGradient', { id: "colorTrend", x1: "0", y1: "0", x2: "0", y2: "1" }, [
-                                e('stop', { offset: "5%", stopColor: "#3b82f6", stopOpacity: 0.3 }),
+                                e('stop', { offset: "5%", stopColor: "#3b82f6", stopOpacity: 0.4 }),
                                 e('stop', { offset: "95%", stopColor: "#3b82f6", stopOpacity: 0 })
                             ])),
                             e(CartesianGrid, { strokeDasharray: "3 3", vertical: false, stroke: darkMode ? "#334155" : "#e2e8f0" }),
-                            e(XAxis, { 
-                                dataKey: "stop", 
-                                fontSize: 10, 
-                                tick: {fill: darkMode ? "#94a3b8" : "#64748b"}, 
-                                axisLine: false,
-                                tickMargin: 10
-                            }),
-                            e(YAxis, { 
-                                fontSize: 10, 
-                                tick: {fill: darkMode ? "#94a3b8" : "#64748b"}, 
-                                axisLine: false,
-                                tickMargin: 10
-                            }),
+                            e(XAxis, { dataKey: "stop", fontSize: 10, tick: {fill: "#94a3b8"}, axisLine: false }),
+                            e(YAxis, { fontSize: 10, tick: {fill: "#94a3b8"}, axisLine: false }),
                             e(Tooltip, { 
-                                cursor: { stroke: '#3b82f6', strokeWidth: 2 },
-                                contentStyle: { 
-                                    backgroundColor: darkMode ? '#1e293b' : '#ffffff', 
-                                    borderRadius: '16px', 
-                                    border: 'none', 
-                                    boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)',
-                                    color: darkMode ? '#f1f5f9' : '#1e293b'
-                                },
-                                formatter: (v) => [formatDuration(v), "ระยะเวลาที่ดับ"]
+                                contentStyle: { backgroundColor: darkMode ? '#1e293b' : '#fff', borderRadius: '12px', border: 'none' },
+                                formatter: (v) => [formatDuration(v), "ระยะเวลา"]
                             }),
-                            e(Area, { 
-                                type: "monotone", 
-                                dataKey: "durSec", 
-                                stroke: "#3b82f6", 
-                                strokeWidth: 4, 
-                                fill: "url(#colorTrend)",
-                                animationDuration: 1500
-                            })
+                            e(Area, { type: "monotone", dataKey: "durSec", stroke: "#3b82f6", strokeWidth: 3, fill: "url(#colorTrend)" })
                         ])))
                     ]),
-
-                    // Summary Bar Chart
-                    e('div', { className: "glass p-6 rounded-[2rem] flex flex-col" }, [
-                        e('h3', { className: "header-font font-bold text-lg mb-2 dark:text-white" }, "Daily Analysis"),
-                        e('p', { className: "text-xs text-slate-400 mb-8" }, "เปรียบเทียบเวลารวมรายวัน"),
-                        e('div', { className: "flex-1 min-h-[300px]" }, e(ResponsiveContainer, null, e(BarChart, { 
+                    e('div', { className: "glass p-6 rounded-[2rem]" }, [
+                        e('h3', { className: "header-font font-bold mb-6 dark:text-white" }, "Daily Total (วินาที)"),
+                        e('div', { className: "h-[300px] w-full" }, e(ResponsiveContainer, null, e(BarChart, { 
                             data: Array.from(new Set(filteredData.map(d => d.date))).map(date => ({
                                 date,
                                 total: filteredData.filter(item => item.date === date).reduce((a, b) => a + b.durSec, 0)
                             }))
                         }, [
-                            e(XAxis, { dataKey: "date", fontSize: 9, tick: {fill: "#94a3b8"}, axisLine: false }),
+                            e(XAxis, { dataKey: "date", fontSize: 10, tick: {fill: "#94a3b8"}, axisLine: false }),
                             e(Tooltip, { 
-                                cursor: {fill: 'rgba(59, 130, 246, 0.1)', radius: 10},
-                                contentStyle: { backgroundColor: darkMode ? '#0f172a' : '#fff', border: 'none', borderRadius: '12px' },
-                                formatter: (v) => [formatDuration(v), "เวลารวม"]
+                                cursor: {fill: 'rgba(59, 130, 246, 0.1)'},
+                                contentStyle: { backgroundColor: darkMode ? '#1e293b' : '#fff', border: 'none' },
+                                formatter: (v) => [formatDuration(v), "รวมรายวัน"]
                             }),
-                            e(Bar, { dataKey: "total", radius: [10, 10, 0, 0] }, 
-                                filteredData.map((entry, index) => e(Cell, { key: index, fill: index % 2 === 0 ? '#3b82f6' : '#6366f1' }))
-                            )
+                            e(Bar, { dataKey: "total", fill: "#6366f1", radius: [8, 8, 0, 0] })
                         ])))
                     ])
                 ]),
 
-                // --- Detailed Table ---
-                e('div', { className: "glass rounded-[2rem] overflow-hidden" }, [
-                    e('div', { className: "p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center" }, [
-                        e('h3', { className: "header-font font-bold text-lg dark:text-white" }, "Detailed Log Table"),
-                        e('button', { className: "px-4 py-2 bg-slate-900 dark:bg-white dark:text-slate-900 text-white rounded-xl text-xs font-bold hover:scale-105 transition" }, "EXPORT PDF")
-                    ]),
-                    e('div', { className: "overflow-x-auto" }, e('table', { className: "w-full" }, [
+                // --- Table ---
+                e('div', { className: "glass rounded-[2rem] overflow-hidden shadow-2xl" }, [
+                    e('div', { className: "overflow-x-auto" }, e('table', { className: "w-full text-left" }, [
                         e('thead', { className: "bg-slate-50/50 dark:bg-slate-900/50 text-[10px] text-slate-400 font-bold uppercase tracking-widest" }, e('tr', null, 
-                            ['วันที่', 'เครื่องดับ (Stop)', 'เครื่องติด (Start)', 'ระยะเวลา', 'สะสม (Cumulative)', 'Status'].map(h => e('th', { className: "px-8 py-5" }, h))
+                            ['วันที่', 'เวลาดับ', 'เวลาติด', 'ระยะเวลา', 'สะสม', 'Status'].map(h => e('th', { className: "px-8 py-5" }, h))
                         )),
-                        e('tbody', { className: "divide-y divide-slate-100 dark:divide-slate-800" }, filteredData.slice().reverse().map(r => e('tr', { key: r.id, className: "hover:bg-blue-50/30 dark:hover:bg-blue-900/10 transition-colors" }, [
-                            e('td', { className: "px-8 py-4 font-semibold text-sm" }, r.date),
-                            e('td', { className: "px-8 py-4 text-slate-500 text-sm" }, r.stop),
-                            e('td', { className: "px-8 py-4 text-slate-500 text-sm" }, r.start),
-                            e('td', { className: "px-8 py-4" }, e('span', { className: "font-bold text-rose-500" }, r.dur)),
-                            e('td', { className: "px-8 py-4 font-bold text-blue-500" }, r.cum),
-                            e('td', { className: "px-8 py-4" }, e('div', { className: "flex items-center gap-2" }, [
-                                e('span', { className: `w-2 h-2 rounded-full ${r.durSec > 300 ? 'bg-rose-500' : r.durSec > 60 ? 'bg-amber-500' : 'bg-emerald-500'}` }),
-                                e('span', { className: "text-[10px] font-bold opacity-70" }, r.durSec > 300 ? 'SEVERE' : r.durSec > 60 ? 'WARNING' : 'NORMAL')
-                            ]))
+                        e('tbody', { className: "divide-y divide-slate-100 dark:divide-slate-800" }, filteredData.slice().reverse().map(r => e('tr', { key: r.id, className: "hover:bg-blue-50/20 dark:hover:bg-blue-900/10 transition-colors" }, [
+                            e('td', { className: "px-8 py-4 text-sm font-medium" }, r.date),
+                            e('td', { className: "px-8 py-4 text-sm text-slate-500" }, r.stop),
+                            e('td', { className: "px-8 py-4 text-sm text-slate-500" }, r.start),
+                            e('td', { className: "px-8 py-4 text-sm font-bold text-rose-500" }, r.dur),
+                            e('td', { className: "px-8 py-4 text-sm font-bold text-blue-500" }, r.cum),
+                            e('td', { className: "px-8 py-4" }, 
+                                e('span', { className: `px-3 py-1 rounded-full text-[9px] font-bold ${r.durSec > 60 ? 'bg-rose-100 text-rose-600 dark:bg-rose-900/30' : 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30'}` }, 
+                                    r.durSec > 60 ? 'LONG DOWNTIME' : 'SHORT DOWNTIME'
+                                )
+                            )
                         ])))
                     ]))
                 ]),
 
-                e('footer', { className: "text-center py-10" }, [
-                    e('p', { className: "text-[10px] text-slate-400 font-bold tracking-[0.2em]" }, "DESIGNED FOR HIGH PERFORMANCE MONITORING • 2026")
-                ])
+                e('footer', { className: "text-center py-10 opacity-30 text-[10px] font-bold tracking-[0.5em]" }, "GENERATOR MONITORING SYSTEM")
             ]);
         }
 
