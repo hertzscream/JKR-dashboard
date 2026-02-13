@@ -1,252 +1,480 @@
-<!DOCTYPE html>
-<html lang="th">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Generator Analytics Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        brand: {
-                            primary: '#3b82f6',
-                            secondary: '#6366f1',
-                            dark: '#0f172a',
-                            surface: '#1e293b'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;600;700&family=Sarabun:wght@300;400;600&display=swap');
-        body { font-family: 'Sarabun', sans-serif; }
-        .header-font { font-family: 'Chakra Petch', sans-serif; }
-        .glass {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.3);
-        }
-        .dark .glass {
-            background: rgba(30, 41, 59, 0.7);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-        }
-        .pulse { animation: pulse-animation 2s infinite; }
-        @keyframes pulse-animation {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
-        }
-    </style>
-</head>
-<body class="bg-[#f8fafc] text-slate-900 dark:bg-[#020617] dark:text-slate-100 min-h-screen transition-colors duration-300">
-    <div id="root"></div>
+import React, { useState, useMemo } from 'react';
+import { 
+  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell 
+} from 'recharts';
+import { 
+  LayoutDashboard, 
+  Table, 
+  Filter, 
+  Calendar, 
+  Clock, 
+  Activity, 
+  Zap, 
+  AlertTriangle,
+  Menu,
+  ChevronRight,
+  Timer
+} from 'lucide-react';
 
-    <script>
-        const { useState, useEffect, useMemo } = React;
-        const e = React.createElement;
-        const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } = window.Recharts;
+// --- Mock Data from User Snippet ---
+// จำลองข้อมูลจากไฟล์ CSV ของผู้ใช้เพื่อแสดงผลทันที
+const RAW_CSV_DATA = [
+  { date: '27/01/2026', timeOff: '16:57:02', timeOn: '16:57:20', duration: '0:00:17', cumulative: '0:00:17' },
+  { date: '27/01/2026', timeOff: '16:59:00', timeOn: '16:59:09', duration: '0:00:08', cumulative: '0:00:26' },
+  { date: '28/01/2026', timeOff: '10:16:15', timeOn: '10:17:29', duration: '0:01:14', cumulative: '0:01:40' },
+  { date: '28/01/2026', timeOff: '10:17:52', timeOn: '10:18:03', duration: '0:00:11', cumulative: '0:01:51' },
+  { date: '28/01/2026', timeOff: '-', timeOn: '11:20:01', duration: '0:47:11', cumulative: '0:49:03' },
+  { date: '28/01/2026', timeOff: '11:21:18', timeOn: '11:21:48', duration: '0:00:30', cumulative: '0:49:33' },
+  { date: '28/01/2026', timeOff: '11:23:33', timeOn: '11:27:07', duration: '0:03:34', cumulative: '0:53:07' },
+  { date: '28/01/2026', timeOff: '11:48:07', timeOn: '11:50:59', duration: '0:02:52', cumulative: '0:56:00' },
+  { date: '29/01/2026', timeOff: '08:00:00', timeOn: '08:05:00', duration: '0:05:00', cumulative: '1:01:00' }, // Sample Data added
+  { date: '29/01/2026', timeOff: '14:30:00', timeOn: '14:32:00', duration: '0:02:00', cumulative: '1:03:00' }, // Sample Data added
+];
 
-        // ข้อมูลตัวอย่างจากไฟล์ CSV ของคุณ
-        const INITIAL_CSV = `(วันที่),(เวลาเครื่องดับ),(เวลาเครื่องติด),(ระยะเวลาที่ดับ),(ดับสะสมทั้งหมด)
-27/01/2026,16:57:02,16:57:20,0:00:17,0:00:17
-27/01/2026,16:59:00,16:59:09,0:00:08,0:00:26
-28/01/2026,10:16:15,10:17:29,0:01:14,0:01:40
-28/01/2026,10:17:52,10:18:03,0:00:11,0:01:51
-28/01/2026,-,11:20:01,0:47:11,0:49:03
-28/01/2026,11:21:18,11:21:48,0:00:30,0:49:33
-28/01/2026,11:23:33,11:27:07,0:03:34,0:53:07
-28/01/2026,11:48:07,11:50:59,0:02:52,0:56:00
-29/01/2026,08:05:41,08:06:55,0:01:14,0:57:14
-29/01/2026,08:35:10,08:35:45,0:00:35,0:57:49
-29/01/2026,08:39:10,08:42:01,0:02:51,1:00:40
-30/01/2026,09:15:00,09:20:00,0:05:00,1:05:40`;
+// --- Utility Functions ---
 
-        const parseTime = (str) => {
-            if (!str || str === '-' || typeof str !== 'string') return 0;
-            const parts = str.trim().split(':').map(Number);
-            if (parts.length === 3) return (parts[0] * 3600 + parts[1] * 60 + parts[2]);
-            if (parts.length === 2) return (parts[0] * 60 + parts[1]);
-            return 0;
-        };
+// แปลง string เวลา "H:MM:SS" เป็น วินาที
+const timeToSeconds = (timeStr) => {
+  if (!timeStr || timeStr === '-') return 0;
+  const parts = timeStr.split(':').map(Number);
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  return 0;
+};
 
-        const formatDuration = (sec) => {
-            if (!sec || isNaN(sec)) return "0 ว.";
-            const h = Math.floor(sec / 3600);
-            const m = Math.floor((sec % 3600) / 60);
-            const s = sec % 60;
-            return h > 0 ? `${h}ชม. ${m}น.` : m > 0 ? `${m}น. ${s}ว.` : `${s}ว.`;
-        };
+// แปลงวินาทีกลับเป็นข้อความสวยๆ
+const formatDuration = (seconds) => {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h} ชม. ${m} นาที ${s} วินาที`;
+  if (m > 0) return `${m} นาที ${s} วินาที`;
+  return `${s} วินาที`;
+};
 
-        const convertDateFormat = (thaiDate) => {
-            if (!thaiDate || !thaiDate.includes('/')) return '';
-            const parts = thaiDate.split('/');
-            if (parts.length !== 3) return '';
-            const [d, m, y] = parts;
-            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
-        };
+// สีสำหรับกราฟ
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
-        function App() {
-            const [data, setData] = useState([]);
-            const [darkMode, setDarkMode] = useState(true);
-            const [startDate, setStartDate] = useState('');
-            const [endDate, setEndDate] = useState('');
-            const [error, setError] = useState(null);
+export default function GenLogDashboard() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [selectedDate, setSelectedDate] = useState('All');
+  const [minDuration, setMinDuration] = useState(0); // in seconds
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
-            useEffect(() => {
-                if (darkMode) document.documentElement.classList.add('dark');
-                else document.documentElement.classList.remove('dark');
-            }, [darkMode]);
+  // --- Process Data ---
+  const processedData = useMemo(() => {
+    return RAW_CSV_DATA.map((item, index) => {
+      const durationSec = timeToSeconds(item.duration);
+      const cumulativeSec = timeToSeconds(item.cumulative);
+      return {
+        id: index,
+        ...item,
+        durationSec,
+        cumulativeSec,
+        // เพิ่ม category สำหรับ Pie Chart
+        category: durationSec < 60 ? 'ต่ำกว่า 1 นาที' : durationSec < 300 ? '1-5 นาที' : 'มากกว่า 5 นาที'
+      };
+    });
+  }, []);
 
-            const processCSVData = (text) => {
-                try {
-                    setError(null);
-                    const rows = text.split(/\r?\n/).filter(r => r.trim());
-                    if (rows.length < 2) throw new Error("ไฟล์ไม่มีข้อมูล");
-                    
-                    const parsed = rows.slice(1).map((row, idx) => {
-                        const cols = row.split(',').map(c => c.trim().replace(/"/g, ''));
-                        return {
-                            id: idx,
-                            date: cols[0],
-                            isoDate: convertDateFormat(cols[0]),
-                            stop: cols[1],
-                            start: cols[2],
-                            dur: cols[3],
-                            cum: cols[4],
-                            durSec: parseTime(cols[3])
-                        };
-                    }).filter(item => item.isoDate !== '');
+  // --- Filter Data ---
+  const filteredData = useMemo(() => {
+    return processedData.filter(item => {
+      const matchDate = selectedDate === 'All' || item.date === selectedDate;
+      const matchDuration = item.durationSec >= minDuration;
+      return matchDate && matchDuration;
+    });
+  }, [processedData, selectedDate, minDuration]);
 
-                    if (parsed.length === 0) throw new Error("ไม่สามารถอ่านรูปแบบข้อมูลได้");
-                    
-                    setData(parsed);
-                    const sorted = [...parsed].sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-                    setStartDate(sorted[0].isoDate);
-                    setEndDate(sorted[sorted.length - 1].isoDate);
-                } catch (err) {
-                    console.error("Data Process Error:", err);
-                    setError(err.message);
-                }
-            };
+  // --- Statistics for Dashboard ---
+  const stats = useMemo(() => {
+    const totalEvents = filteredData.length;
+    const totalDurationSec = filteredData.reduce((acc, curr) => acc + curr.durationSec, 0);
+    const avgDurationSec = totalEvents > 0 ? totalDurationSec / totalEvents : 0;
+    
+    // Group by Date for Bar Chart
+    const eventsByDate = {};
+    filteredData.forEach(item => {
+      if (!eventsByDate[item.date]) eventsByDate[item.date] = { date: item.date, count: 0, duration: 0 };
+      eventsByDate[item.date].count += 1;
+      eventsByDate[item.date].duration += item.durationSec;
+    });
+    const chartDataByDate = Object.values(eventsByDate);
 
-            useEffect(() => {
-                processCSVData(INITIAL_CSV);
-            }, []);
+    // Group by Category for Pie Chart
+    const eventsByCategory = {};
+    filteredData.forEach(item => {
+      if (!eventsByCategory[item.category]) eventsByCategory[item.category] = 0;
+      eventsByCategory[item.category] += 1;
+    });
+    const pieChartData = Object.keys(eventsByCategory).map(key => ({
+      name: key,
+      value: eventsByCategory[key]
+    }));
 
-            const filteredData = useMemo(() => {
-                return data.filter(item => {
-                    return (!startDate || item.isoDate >= startDate) && (!endDate || item.isoDate <= endDate);
-                }).sort((a, b) => a.isoDate.localeCompare(b.isoDate));
-            }, [data, startDate, endDate]);
+    return { totalEvents, totalDurationSec, avgDurationSec, chartDataByDate, pieChartData };
+  }, [filteredData]);
 
-            const stats = useMemo(() => {
-                const totalSec = filteredData.reduce((acc, curr) => acc + curr.durSec, 0);
-                return {
-                    count: filteredData.length,
-                    total: formatDuration(totalSec),
-                    avg: formatDuration(filteredData.length > 0 ? Math.round(totalSec / filteredData.length) : 0),
-                    max: formatDuration(filteredData.length > 0 ? Math.max(...filteredData.map(d => d.durSec)) : 0)
-                };
-            }, [filteredData]);
+  // Get Unique Dates for Dropdown
+  const uniqueDates = useMemo(() => {
+    return ['All', ...new Set(processedData.map(d => d.date))];
+  }, [processedData]);
 
-            const dailyData = useMemo(() => {
-                const groups = filteredData.reduce((acc, item) => {
-                    acc[item.date] = (acc[item.date] || 0) + item.durSec;
-                    return acc;
-                }, {});
-                return Object.keys(groups).map(date => ({ date, total: groups[date] }));
-            }, [filteredData]);
+  return (
+    <div className="flex h-screen bg-slate-50 font-sans text-slate-800 overflow-hidden">
+      
+      {/* --- Sidebar --- */}
+      <aside 
+        className={`bg-slate-900 text-white transition-all duration-300 ease-in-out flex flex-col shadow-xl z-20 ${
+          isSidebarOpen ? 'w-72' : 'w-20'
+        }`}
+      >
+        {/* Logo Area */}
+        <div className="h-16 flex items-center justify-between px-6 border-b border-slate-700">
+          <div className={`flex items-center gap-3 ${!isSidebarOpen && 'justify-center w-full'}`}>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0">
+              <Zap className="w-5 h-5 text-white" />
+            </div>
+            {isSidebarOpen && <span className="font-bold text-lg tracking-wide">GenMonitor</span>}
+          </div>
+          {isSidebarOpen && (
+            <button onClick={() => setIsSidebarOpen(false)} className="text-slate-400 hover:text-white">
+              <ChevronRight className="w-5 h-5 rotate-180" />
+            </button>
+          )}
+        </div>
 
-            if (error) {
-                return e('div', { className: "flex flex-col items-center justify-center min-h-screen p-4 text-center" }, [
-                    e('h1', { className: "text-2xl font-bold text-rose-500 mb-2" }, "เกิดข้อผิดพลาดในการโหลดข้อมูล"),
-                    e('p', { className: "text-slate-500 mb-4" }, error),
-                    e('button', { 
-                        onClick: () => processCSVData(INITIAL_CSV),
-                        className: "bg-blue-600 text-white px-6 py-2 rounded-xl"
-                    }, "ลองโหลดข้อมูลใหม่")
-                ]);
-            }
+        {/* Navigation Menu */}
+        <nav className="flex-1 py-6 px-3 space-y-2">
+          <MenuItem 
+            icon={<LayoutDashboard />} 
+            label="ภาพรวมระบบ" 
+            isActive={activeTab === 'dashboard'} 
+            onClick={() => setActiveTab('dashboard')} 
+            isOpen={isSidebarOpen}
+          />
+          <MenuItem 
+            icon={<Table />} 
+            label="ตารางบันทึก (Log)" 
+            isActive={activeTab === 'table'} 
+            onClick={() => setActiveTab('table')} 
+            isOpen={isSidebarOpen}
+          />
+        </nav>
 
-            return e('div', { className: "max-w-7xl mx-auto p-4 md:p-8 space-y-8" }, [
-                // Header
-                e('header', { className: "flex flex-col md:flex-row justify-between items-start md:items-center gap-4" }, [
-                    e('div', null, [
-                        e('h1', { className: "header-font text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500 dark:from-blue-400 dark:to-emerald-400" }, "GEN LOG MONITORING"),
-                        e('p', { className: "text-slate-500 text-sm" }, "ระบบวิเคราะห์ข้อมูลเครื่องกำเนิดไฟฟ้า")
-                    ]),
-                    e('div', { className: "flex items-center gap-3" }, [
-                        e('div', { className: "glass p-2 rounded-xl flex gap-2" }, [
-                            e('input', { type: 'date', value: startDate, onChange: e => setStartDate(e.target.value), className: "bg-transparent text-xs outline-none" }),
-                            e('span', null, "→"),
-                            e('input', { type: 'date', value: endDate, onChange: e => setEndDate(e.target.value), className: "bg-transparent text-xs outline-none" })
-                        ]),
-                        e('button', { onClick: () => setDarkMode(!darkMode), className: "glass p-2 rounded-xl" }, darkMode ? "☀️" : "🌙")
-                    ])
-                ]),
+        {/* Filters Section */}
+        <div className="p-4 bg-slate-800/50 border-t border-slate-700">
+           {isSidebarOpen ? (
+             <div className="space-y-4">
+               <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm uppercase tracking-wider">
+                 <Filter className="w-4 h-4" /> ตัวกรองข้อมูล
+               </div>
+               
+               {/* Date Filter */}
+               <div className="space-y-1">
+                 <label className="text-xs text-slate-400">เลือกวันที่</label>
+                 <div className="relative">
+                   <select 
+                     value={selectedDate}
+                     onChange={(e) => setSelectedDate(e.target.value)}
+                     className="w-full bg-slate-900 border border-slate-600 rounded-lg py-2 px-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 appearance-none"
+                   >
+                     {uniqueDates.map(date => (
+                       <option key={date} value={date}>{date === 'All' ? 'แสดงทั้งหมด' : date}</option>
+                     ))}
+                   </select>
+                   <Calendar className="w-4 h-4 text-slate-500 absolute right-3 top-2.5 pointer-events-none" />
+                 </div>
+               </div>
 
-                // Summary
-                e('div', { className: "grid grid-cols-2 lg:grid-cols-4 gap-4" }, [
-                    { label: "จำนวนครั้งที่ดับ", val: stats.count, unit: "ครั้ง", color: "from-blue-500 to-blue-600" },
-                    { label: "เวลารวมทั้งหมด", val: stats.total, unit: "", color: "from-indigo-500 to-indigo-600" },
-                    { label: "ค่าเฉลี่ย/ครั้ง", val: stats.avg, unit: "", color: "from-emerald-500 to-emerald-600" },
-                    { label: "ดับนานสุด", val: stats.max, unit: "", color: "from-rose-500 to-rose-600" }
-                ].map(s => e('div', { key: s.label, className: `p-6 rounded-3xl bg-gradient-to-br ${s.color} text-white shadow-lg` }, [
-                    e('p', { className: "text-white/70 text-[10px] font-bold uppercase mb-1" }, s.label),
-                    e('h3', { className: "text-2xl font-bold" }, s.val),
-                    e('p', { className: "text-[10px] opacity-50" }, s.unit)
-                ]))),
+               {/* Duration Filter */}
+               <div className="space-y-1">
+                 <div className="flex justify-between">
+                    <label className="text-xs text-slate-400">ระยะเวลาดับขั้นต่ำ</label>
+                    <span className="text-xs text-indigo-400">{minDuration} วินาที</span>
+                 </div>
+                 <input 
+                   type="range" 
+                   min="0" 
+                   max="300" 
+                   step="10" 
+                   value={minDuration}
+                   onChange={(e) => setMinDuration(Number(e.target.value))}
+                   className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
+                 />
+                 <div className="flex justify-between text-[10px] text-slate-500">
+                    <span>0s</span>
+                    <span>300s+</span>
+                 </div>
+               </div>
+             </div>
+           ) : (
+             <div className="flex justify-center">
+               <button 
+                onClick={() => setIsSidebarOpen(true)}
+                className="p-2 bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-colors"
+               >
+                 <Filter className="w-5 h-5 text-white" />
+               </button>
+             </div>
+           )}
+        </div>
+      </aside>
 
-                // Charts
-                e('div', { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" }, [
-                    e('div', { className: "lg:col-span-2 glass p-6 rounded-[2rem]" }, [
-                        e('h3', { className: "font-bold mb-6" }, "แนวโน้มเวลาที่ดับ (วินาที)"),
-                        e('div', { className: "h-[300px]" }, e(ResponsiveContainer, null, e(AreaChart, { data: filteredData }, [
-                            e(CartesianGrid, { strokeDasharray: "3 3", vertical: false, stroke: "#cbd5e133" }),
-                            e(XAxis, { dataKey: "stop", fontSize: 10 }),
-                            e(YAxis, { fontSize: 10 }),
-                            e(Tooltip),
-                            e(Area, { type: "monotone", dataKey: "durSec", stroke: "#3b82f6", fill: "#3b82f633", strokeWidth: 3 })
-                        ])))
-                    ]),
-                    e('div', { className: "glass p-6 rounded-[2rem]" }, [
-                        e('h3', { className: "font-bold mb-6" }, "สรุปรวมรายวัน"),
-                        e('div', { className: "h-[300px]" }, e(ResponsiveContainer, null, e(BarChart, { data: dailyData }, [
-                            e(XAxis, { dataKey: "date", fontSize: 10 }),
-                            e(Tooltip),
-                            e(Bar, { dataKey: "total", fill: "#6366f1", radius: [10, 10, 10, 10] })
-                        ])))
-                    ])
-                ]),
+      {/* --- Main Content --- */}
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* Top Header */}
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-8 shadow-sm">
+           <div className="flex items-center gap-4">
+             {!isSidebarOpen && (
+               <button onClick={() => setIsSidebarOpen(true)} className="p-2 hover:bg-slate-100 rounded-full">
+                 <Menu className="w-5 h-5 text-slate-600" />
+               </button>
+             )}
+             <h1 className="text-2xl font-bold text-slate-800">
+               {activeTab === 'dashboard' ? 'Dashboard สรุปผล' : 'บันทึกเหตุการณ์ (Log Table)'}
+             </h1>
+           </div>
+           <div className="flex items-center gap-3">
+              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 text-xs font-medium flex items-center gap-1">
+                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+                System Online
+              </span>
+              <div className="text-sm text-slate-500 text-right">
+                <div>อัปเดตล่าสุด</div>
+                <div className="font-medium text-slate-800">29/01/2026 14:35</div>
+              </div>
+           </div>
+        </header>
 
-                // Table
-                e('div', { className: "glass rounded-[2rem] overflow-hidden" }, [
-                    e('div', { className: "overflow-x-auto" }, e('table', { className: "w-full text-left" }, [
-                        e('thead', { className: "bg-slate-100/50 dark:bg-slate-800/50 text-[10px] font-bold uppercase" }, e('tr', null, 
-                            ['วันที่', 'เวลาดับ', 'เวลาติด', 'ระยะเวลา', 'สะสมทั้งหมด'].map(h => e('th', { className: "px-8 py-4" }, h))
-                        )),
-                        e('tbody', { className: "divide-y divide-slate-100 dark:divide-slate-800" }, filteredData.slice().reverse().map(r => e('tr', { key: r.id, className: "text-sm hover:bg-blue-50/30 transition-colors" }, [
-                            e('td', { className: "px-8 py-4 font-medium" }, r.date),
-                            e('td', { className: "px-8 py-4 text-slate-500" }, r.stop),
-                            e('td', { className: "px-8 py-4 text-slate-500" }, r.start),
-                            e('td', { className: "px-8 py-4 font-bold text-rose-500" }, r.dur),
-                            e('td', { className: "px-8 py-4 font-bold text-blue-500" }, r.cum)
-                        ])))
-                    ]))
-                ])
-            ]);
-        }
+        {/* Content Scrollable Area */}
+        <div className="flex-1 overflow-auto p-8">
+          
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <StatCard 
+              title="เหตุการณ์เครื่องดับ" 
+              value={stats.totalEvents} 
+              unit="ครั้ง"
+              icon={<AlertTriangle className="text-rose-500" />}
+              color="border-rose-500"
+            />
+            <StatCard 
+              title="เวลารวมที่ดับ" 
+              value={formatDuration(stats.totalDurationSec)} 
+              unit=""
+              icon={<Clock className="text-amber-500" />}
+              color="border-amber-500"
+            />
+            <StatCard 
+              title="เฉลี่ยต่อครั้ง" 
+              value={formatDuration(Math.round(stats.avgDurationSec))} 
+              unit=""
+              icon={<Activity className="text-indigo-500" />}
+              color="border-indigo-500"
+            />
+          </div>
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(e(App));
-    </script>
-</body>
-</html>
+          {activeTab === 'dashboard' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              
+              {/* Chart 1: Daily Events */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                  <BarChart className="w-5 h-5 text-indigo-500" /> จำนวนครั้งที่ดับรายวัน
+                </h3>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stats.chartDataByDate}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="date" tick={{fontSize: 12}} />
+                      <YAxis allowDecimals={false} />
+                      <RechartsTooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Bar dataKey="count" name="จำนวนครั้ง" fill="#6366f1" radius={[4, 4, 0, 0]} barSize={40} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 2: Cumulative Duration Trend */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                <h3 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                  <Activity className="w-5 h-5 text-emerald-500" /> แนวโน้มระยะเวลาที่ดับ (วินาที)
+                </h3>
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={filteredData}>
+                      <defs>
+                        <linearGradient id="colorDuration" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.2}/>
+                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="timeOff" hide />
+                      <YAxis />
+                      <RechartsTooltip 
+                         labelFormatter={(label) => `เวลา: ${label}`}
+                         formatter={(value) => [`${value} วินาที`, 'ระยะเวลา']}
+                         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                      />
+                      <Area type="monotone" dataKey="durationSec" stroke="#10b981" fillOpacity={1} fill="url(#colorDuration)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Chart 3: Duration Distribution */}
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2 flex flex-col md:flex-row gap-8">
+                 <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-slate-700 mb-4 flex items-center gap-2">
+                      <Timer className="w-5 h-5 text-amber-500" /> สัดส่วนความนานในการดับ
+                    </h3>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={stats.pieChartData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={90}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {stats.pieChartData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <RechartsTooltip />
+                          <Legend verticalAlign="bottom" height={36}/>
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                 </div>
+                 <div className="flex-1 flex flex-col justify-center gap-4 text-sm text-slate-600 bg-slate-50 p-6 rounded-xl">
+                    <h4 className="font-semibold text-slate-800 mb-2">ข้อมูลเชิงลึก</h4>
+                    <p>• มีเหตุการณ์ไฟดับทั้งหมด <span className="font-bold text-indigo-600 text-lg">{stats.totalEvents}</span> ครั้ง ในช่วงเวลาที่เลือก</p>
+                    <p>• ระยะเวลาดับรวมทั้งหมดคือ <span className="font-bold text-amber-600">{formatDuration(stats.totalDurationSec)}</span></p>
+                    <p>• เฉลี่ยแล้วไฟดับแต่ละครั้งนานประมาณ <span className="font-bold text-emerald-600">{Math.round(stats.avgDurationSec)} วินาที</span></p>
+                    {stats.chartDataByDate.length > 0 && (
+                      <p>• วันที่มีปัญหามากที่สุดคือวันที่ <span className="font-bold text-rose-600">{stats.chartDataByDate.sort((a,b) => b.count - a.count)[0].date}</span></p>
+                    )}
+                 </div>
+              </div>
+
+            </div>
+          )}
+
+          {/* Table View */}
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+              <h3 className="font-semibold text-slate-700">รายการ Log ทั้งหมด</h3>
+              <span className="text-xs text-slate-500 bg-white px-2 py-1 rounded border border-slate-200">
+                แสดง {filteredData.length} รายการ
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wide">
+                    <th className="px-6 py-4 font-medium">วันที่</th>
+                    <th className="px-6 py-4 font-medium">เวลาเครื่องดับ</th>
+                    <th className="px-6 py-4 font-medium">เวลาเครื่องติด</th>
+                    <th className="px-6 py-4 font-medium">ระยะเวลาที่ดับ</th>
+                    <th className="px-6 py-4 font-medium">ดับสะสมทั้งหมด</th>
+                    <th className="px-6 py-4 font-medium">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredData.length > 0 ? (
+                    filteredData.map((row) => (
+                      <tr key={row.id} className="hover:bg-slate-50/80 transition-colors text-sm text-slate-700">
+                        <td className="px-6 py-4 font-medium">{row.date}</td>
+                        <td className="px-6 py-4 text-rose-600 font-mono">{row.timeOff}</td>
+                        <td className="px-6 py-4 text-emerald-600 font-mono">{row.timeOn}</td>
+                        <td className="px-6 py-4 font-mono font-medium">{row.duration}</td>
+                        <td className="px-6 py-4 text-slate-500 font-mono">{row.cumulative}</td>
+                        <td className="px-6 py-4">
+                          <StatusBadge durationSec={row.durationSec} />
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="6" className="px-6 py-12 text-center text-slate-400">
+                        ไม่พบข้อมูลตามเงื่อนไขที่เลือก
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </main>
+    </div>
+  );
+}
+
+// --- Sub-components ---
+
+function MenuItem({ icon, label, isActive, onClick, isOpen }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${
+        isActive 
+          ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' 
+          : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+      } ${!isOpen && 'justify-center px-2'}`}
+      title={!isOpen ? label : ''}
+    >
+      <div className={`${isActive ? 'text-white' : 'text-slate-400'} shrink-0`}>
+        {icon}
+      </div>
+      {isOpen && <span className="font-medium whitespace-nowrap">{label}</span>}
+    </button>
+  );
+}
+
+function StatCard({ title, value, unit, icon, color }) {
+  return (
+    <div className={`bg-white p-6 rounded-2xl shadow-sm border-l-4 ${color} hover:shadow-md transition-shadow`}>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-medium text-slate-500">{title}</h3>
+        <div className="p-2 bg-slate-50 rounded-lg">{icon}</div>
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-bold text-slate-800">{value}</span>
+        <span className="text-sm text-slate-500 font-medium">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ durationSec }) {
+  if (durationSec > 300) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-100 text-rose-700 border border-rose-200">
+        Critical
+      </span>
+    );
+  }
+  if (durationSec > 60) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700 border border-amber-200">
+        Warning
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+      Normal
+    </span>
+  );
+}
